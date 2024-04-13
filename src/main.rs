@@ -121,7 +121,7 @@ fn balance_of_cubic(c: CubicBez) -> f64 {
 
 fn err_plot_main() {
     let th0: f64 = 0.5;
-    let th1: f64 = 0.7;
+    let th1: f64 = 0.15;
     let d0_scale = 1.0;
     let d1_scale = 1.0;
     let d0 = 2. / 3. * d0_scale / (1.0 + th0.cos());
@@ -138,7 +138,8 @@ fn err_plot_main() {
     let no_m = NormOffset::new(c, -DIFF_EPS);
     let bal_m = balance_of_cubic(no_m.cubic_fit());
     let slope = (bal_p - bal_m) / (2. * DIFF_EPS);
-    eprintln!("slope = {slope}");
+    let predict = 0.75 * (th0 - th1);
+    eprintln!("slope = {slope}, predict {predict}");
 
     const HEIGHT: usize = 256;
     const WIDTH: usize = 256;
@@ -148,18 +149,24 @@ fn err_plot_main() {
     for y in 0..HEIGHT {
         let d = y as f64 / (HEIGHT - 1) as f64 - 0.5;
         let no = NormOffset::new(c, d);
+        let predict_bal = d0 / (d0 + d1) + d * predict;
         for x in 0..WIDTH {
             let balance = x as f64 / (WIDTH - 1) as f64;
             let c = no.approx_from_balance(balance);
             let err = no.cubic_err(c);
-            let z = -30. * err.ln();
+            let z = -20. * err.ln() - 50.0;
             let g = z.clamp(0.0, 255.0) as u8;
             let g2 = if y == (HEIGHT - 1) / 2 {
                 z.clamp(0.0, 128.0) as u8 + 127
             } else {
                 g
             };
-            println!("{g} {g2} {g}");
+            let r2 = if (balance - predict_bal).abs() < 0.005 {
+                z.clamp(0.0, 128.0) as u8 + 127
+            } else {
+                g
+            };
+            println!("{r2} {g2} {g}");
         }
     }
 }
