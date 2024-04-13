@@ -1,6 +1,6 @@
 use kurbo::{
     common::solve_quadratic, offset::CubicOffset, Affine, CubicBez, ParamCurve, ParamCurveArclen,
-    ParamCurveDeriv, ParamCurveFit, QuadBez,
+    ParamCurveFit,
 };
 
 /// A cubic offset normalized to unit chord.
@@ -86,8 +86,13 @@ impl NormOffset {
         let c1 = 0.3 * (balance * s0 + (1.0 - balance) * s1);
         let c0 = -self.area;
         let roots = solve_quadratic(c0, c1, c2);
-        // TODO: probably will need to pick best root
-        let d = roots.get(0).unwrap_or(&0.0);
+        let mut d = 0.0;
+        //println!("{roots:?}");
+        for candidate in roots {
+            if 0.0 <= candidate && candidate < 1.0 && (d == 0.0 || candidate < d) {
+                d = candidate;
+            }
+        }
         let d0 = d * balance;
         let d1 = d * (1.0 - balance);
         CubicBez::new(
@@ -97,10 +102,44 @@ impl NormOffset {
             (1., 0.),
         )
     }
+
+    fn cubic_fit(&self) -> CubicBez {
+        let cubic_default: CubicBez =
+            CubicBez::new((0., 0.), (1. / 3., 0.), (2. / 3., 0.), (1., 0.));
+        match kurbo::fit_to_cubic(&self.co_normed, 0.0..1.0, 0.1) {
+            Some((c, _err)) => c,
+            _ => cubic_default,
+        }
+    }
+}
+
+fn balance_of_cubic(c: CubicBez) -> f64 {
+    let d0 = (c.p1 - c.p0).length();
+    let d1 = (c.p3 - c.p2).length();
+    d0 / (d0 + d1)
 }
 
 fn err_plot_main() {
-    let c = CubicBez::new((0.0, 0.0), (0.3, 0.2), (0.6, 0.1), (1.0, 0.0));
+    let th0: f64 = 0.5;
+    let th1: f64 = 0.7;
+    let d0_scale = 1.0;
+    let d1_scale = 1.0;
+    let d0 = 2. / 3. * d0_scale / (1.0 + th0.cos());
+    let d1 = 2. / 3. * d1_scale / (1.0 + th1.cos());
+    let c = CubicBez::new(
+        (0.0, 0.0),
+        (d0 * th0.cos(), d0 * th0.sin()),
+        (1.0 - d1 * th1.cos(), d1 * th1.sin()),
+        (1.0, 0.0),
+    );
+    const DIFF_EPS: f64 = 0.001;
+    let no_p = NormOffset::new(c, DIFF_EPS);
+    let bal_p = balance_of_cubic(no_p.cubic_fit());
+    let no_m = NormOffset::new(c, -DIFF_EPS);
+    let bal_m = balance_of_cubic(no_m.cubic_fit());
+    let slope = (bal_p - bal_m) / (2. * DIFF_EPS);
+    eprintln!("slope = {slope}");
+
     const HEIGHT: usize = 256;
     const WIDTH: usize = 256;
     println!("P3");
@@ -113,9 +152,13 @@ fn err_plot_main() {
             let balance = x as f64 / (WIDTH - 1) as f64;
             let c = no.approx_from_balance(balance);
             let err = no.cubic_err(c);
-            let z = -30. * err.ln() - 100.0;
+            let z = -30. * err.ln();
             let g = z.clamp(0.0, 255.0) as u8;
-            let g2 = if y == (HEIGHT - 1) / 2 { z.clamp(0.0, 128.0) as u8 + 127} else { g };
+            let g2 = if y == (HEIGHT - 1) / 2 {
+                z.clamp(0.0, 128.0) as u8 + 127
+            } else {
+                g
+            };
             println!("{g} {g2} {g}");
         }
     }
