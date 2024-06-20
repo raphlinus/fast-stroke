@@ -28,7 +28,7 @@ impl BalancedBez {
             (0., 0.),
             (d0 * c0, d0 * s0),
             (1. - d1 * c1, d1 * s1),
-            (1., 0.)
+            (1., 0.),
         )
     }
 
@@ -52,7 +52,12 @@ impl BalancedBez {
         let b1 = b1 * norm;
         let bulge = (l01 - e0) * b0 + (l23 - e1) * b1;
         let balance = (l01 - e0) * b1 - (l23 - e1) * b0;
-        BalancedBez { th0, th1, bulge, balance }
+        BalancedBez {
+            th0,
+            th1,
+            bulge,
+            balance,
+        }
     }
 
     pub fn get_ds(&self) -> (f64, f64) {

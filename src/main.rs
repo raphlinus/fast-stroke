@@ -1,10 +1,12 @@
 mod balanced;
+mod norm_bez;
 
 use balanced::BalancedBez;
 use kurbo::{
     common::solve_quadratic, offset::CubicOffset, Affine, CubicBez, ParamCurve, ParamCurveArclen,
-    ParamCurveFit,
+    ParamCurveFit, Point, Shape,
 };
+use rand::{thread_rng, Rng};
 
 /// A cubic offset normalized to unit chord.
 struct NormOffset {
@@ -144,7 +146,7 @@ impl NormOffset {
             (0., 0.),
             (d0 * c0, d0 * s0),
             (1. - d1 * c1, d1 * s1),
-            (1., 0.)
+            (1., 0.),
         )
     }
 
@@ -170,7 +172,7 @@ impl NormOffset {
             (0., 0.),
             (d0 * c0, d0 * s0),
             (1. - d1 * c1, d1 * s1),
-            (1., 0.)
+            (1., 0.),
         )
     }
 }
@@ -251,6 +253,67 @@ fn junk_main() {
     println!("{:?}", no.approx_from_balance_ratio(0.46725));
 }
 
+#[derive(Debug)]
+struct EsErrorMetric {
+    symm: f64,
+    asymm: f64,
+    aerr: f64,
+    dist: f64,
+    err: f64,
+}
+
+/// Compute ES error metric and its components.
+///
+/// Input cubic Bézier must be normalized to unit chord.
+fn es_err_metric(c: CubicBez) -> EsErrorMetric {
+    let th0 = c.p1.y.atan2(c.p1.x);
+    let th1 = c.p2.y.atan2(1.0 - c.p2.x);
+    let d0 = c.p1.y.hypot(c.p1.x);
+    let d1 = c.p2.y.hypot(1.0 - c.p2.x);
+    let e0 = (2. / 3.) / (1.0 + th0.cos());
+    let e1 = (2. / 3.) / (1.0 + th1.cos());
+    let s0 = th0.sin();
+    let s1 = th1.sin();
+    let s01 = (s0 + s1).sin();
+    let amin = 0.15 * (2. * e0 * s0 + 2. * e1 * s1 - e0 * e1 * s01);
+    let a = 0.15 * (2. * d0 * s0 + 2. * d1 * s1 - d0 * d1 * s01);
+    let aerr = (a - amin).abs();
+    let symm = (th0 + th1).abs();
+    let asymm = (th0 - th1).abs();
+    let dist = (d0 - e0).hypot(d1 - e1);
+    let ctr = 3.7e-6 * symm.powi(5) + 6e-3 * asymm * symm.powi(2);
+    let halo_symm = 5e-3 * symm * dist;
+    let halo_asymm = 7e-2 * asymm * dist;
+    let err = 1.25 * ctr + 1.55 * aerr + halo_symm + halo_asymm;
+    EsErrorMetric {
+        symm,
+        asymm,
+        aerr,
+        dist,
+        err,
+    }
+}
+
+fn err_metric_main() {
+    let mut rng = thread_rng();
+    let th0 = rng.gen_range(0.0f64..0.5);
+    let th1 = rng.gen_range(0.0f64..0.5);
+    let d0 = rng.gen_range(0.0..0.6);
+    let d1 = rng.gen_range(0.0..0.6);
+    let p2 = Point::new(1.0 - d1 * th1.cos(), d1 * th1.sin());
+    let p1 = Point::new(d0 * th0.cos(), d0 * th0.sin());
+    let c = CubicBez::new(Point::ORIGIN, p1, p2, Point::new(1.0, 0.0));
+    println!("{:.5?}", es_err_metric(c));
+    let c_subdiv = c.subsegment(0.45..0.55);
+    println!("{}", c.to_path(0.1).to_svg());
+    println!("{}", c_subdiv.to_path(0.1).to_svg());
+    println!(
+        "{}",
+        norm_bez::normalize_bez(c_subdiv).0.to_path(0.1).to_svg()
+    );
+    println!("{:.5?}", es_err_metric(norm_bez::normalize_bez(c_subdiv).0));
+}
+
 fn main() {
-    err_plot_main();
+    err_metric_main();
 }
