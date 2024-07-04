@@ -1,7 +1,9 @@
 mod balanced;
+mod cheb;
 mod norm_bez;
 
 use balanced::BalancedBez;
+use cheb::Cheb;
 use kurbo::{
     common::solve_quadratic, offset::CubicOffset, Affine, CubicBez, ParamCurve, ParamCurveArclen,
     ParamCurveFit, Point, Shape,
@@ -22,7 +24,7 @@ struct NormOffset {
     total_arclen: f64,
 }
 
-const ARCLEN_EPS: f64 = 1e-12;
+const ARCLEN_EPS: f64 = 1e-15;
 
 impl NormOffset {
     fn new(c: CubicBez, d: f64) -> Self {
@@ -58,6 +60,17 @@ impl NormOffset {
     fn arclen(&self, t: f64) -> f64 {
         let th_t = self.co_normed.sample_pt_deriv(t).1.angle();
         self.c_normed.subsegment(0.0..t).arclen(ARCLEN_EPS) + (self.th0 - th_t) * self.d
+    }
+
+    fn inv_arclen(&self, arclen: f64, total_arclen: f64) -> f64 {
+        if arclen <= 0.0 {
+            0.0
+        } else if arclen >= total_arclen {
+            1.0
+        } else {
+            let f = |t| self.arclen(t) - arclen;
+            kurbo::common::solve_itp(f, 0.0, 1.0, ARCLEN_EPS, 1, 0.2, -arclen, total_arclen - arclen)
+        }
     }
 
     /// Estimate of Fréchet distance.
@@ -314,6 +327,41 @@ fn err_metric_main() {
     println!("{:.5?}", es_err_metric(norm_bez::normalize_bez(c_subdiv).0));
 }
 
+fn arclen_foo() {
+    let mut rng = thread_rng();
+    let th0 = rng.gen_range(0.0f64..0.5);
+    let th1 = rng.gen_range(0.0f64..0.5);
+    let d0 = rng.gen_range(0.0..0.6);
+    let d1 = rng.gen_range(0.0..0.6);
+    let p2 = Point::new(1.0 - d1 * th1.cos(), d1 * th1.sin());
+    let p1 = Point::new(d0 * th0.cos(), d0 * th0.sin());
+    let c = CubicBez::new(Point::ORIGIN, p1, p2, Point::new(1.0, 0.0));
+    let normed = NormOffset::new(c, 0.1);
+    let total_arclen = normed.arclen(1.0);
+    for i in 0..=10 {
+        let arclen = total_arclen * i as f64 / 10.0;
+        println!("{arclen} {}", normed.inv_arclen(arclen, total_arclen));
+    }
+}
+
+fn cheb_foo() {
+    let p0 = Cheb::new(vec![1., 0.]);
+    let p1 = Cheb::new(vec![0., 1.]);
+    let p2 = Cheb::new(vec![0., 0., 1.]);
+    let p3 = Cheb::new(vec![0., 0., 0., 1.]);
+    let p4 = Cheb::new(vec![0., 0., 0., 0., 1.]);
+    println!("{:?}", &p0 * &p0);
+    println!("{:?}", &p0 * &p1);
+    println!("{:?}", &p1 * &p1);
+    println!("{:?}", &p1 * &p4);
+    println!("{:?}", &p4 * &p1);
+    println!("{:?}", &p4 - &p1);
+    println!("{:?}", &p1 - &p4);
+    println!("{:?}", &p4 + &p1);
+}
+
 fn main() {
-    err_metric_main();
+    // err_metric_main();
+    // arclen_foo();
+    cheb_foo();
 }
