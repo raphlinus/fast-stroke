@@ -1,12 +1,15 @@
+// This project is full of experiments.
+#![allow(unused)]
+
 mod balanced;
 mod cheb;
 mod norm_bez;
 
 use balanced::BalancedBez;
-use cheb::Cheb;
+use cheb::{Cheb, N_CHEB};
 use kurbo::{
     common::solve_quadratic, offset::CubicOffset, Affine, CubicBez, ParamCurve, ParamCurveArclen,
-    ParamCurveFit, Point, Shape,
+    ParamCurveDeriv, ParamCurveFit, Point, Shape,
 };
 use rand::{thread_rng, Rng};
 
@@ -69,7 +72,16 @@ impl NormOffset {
             1.0
         } else {
             let f = |t| self.arclen(t) - arclen;
-            kurbo::common::solve_itp(f, 0.0, 1.0, ARCLEN_EPS, 1, 0.2, -arclen, total_arclen - arclen)
+            kurbo::common::solve_itp(
+                f,
+                0.0,
+                1.0,
+                ARCLEN_EPS,
+                1,
+                0.2,
+                -arclen,
+                total_arclen - arclen,
+            )
         }
     }
 
@@ -132,7 +144,6 @@ impl NormOffset {
     }
 
     /// Approximate using sweet Bézier.
-    #[allow(unused)]
     fn approx_sweet(&self) -> CubicBez {
         let (s0, c0) = self.th0.sin_cos();
         let (s1, c1) = self.th1.sin_cos();
@@ -187,6 +198,27 @@ impl NormOffset {
             (1. - d1 * c1, d1 * s1),
             (1., 0.),
         )
+    }
+
+    fn to_chebs(&self) -> [f64; N_CHEB] {
+        let mut sums = [0.0; N_CHEB];
+        let q = self.c_normed.deriv();
+        let total_arclen = self.arclen(1.0);
+        const N: usize = 16;
+        let dx = 1.0 / N as f64;
+        for k in 0..N {
+            let x = (std::f64::consts::PI * dx * (k as f64 + 0.5)).cos();
+            let t = self.inv_arclen((0.5 + 0.5 * x) * total_arclen, total_arclen);
+            let th = q.eval(t).to_vec2().angle();
+            for (sum, cheb) in sums.iter_mut().zip(cheb::chebs(x)) {
+                *sum += th * cheb;
+            }
+        }
+        for sum in sums.iter_mut() {
+            *sum *= 2.0 * dx;
+        }
+        sums[0] *= 0.5;
+        sums
     }
 }
 
@@ -251,7 +283,6 @@ fn err_plot_main() {
     }
 }
 
-#[allow(unused)]
 fn junk_main() {
     let c = CubicBez::new((0.0, 0.0), (0.3, 0.1), (0.7, 0.2), (1.0, 0.0));
     let no = NormOffset::new(c, -0.2);
@@ -342,6 +373,9 @@ fn arclen_foo() {
         let arclen = total_arclen * i as f64 / 10.0;
         println!("{arclen} {}", normed.inv_arclen(arclen, total_arclen));
     }
+    println!("{:?}", normed.to_chebs());
+    let normed_minus = NormOffset::new(c, -0.1);
+    println!("{:?}", normed_minus.to_chebs());
 }
 
 fn cheb_foo() {
@@ -360,8 +394,62 @@ fn cheb_foo() {
     println!("{:?}", &p4 + &p1);
 }
 
+/// Convert parameters to cubic Bézier.
+///
+/// There are a bunch of variations to try, but this one seems to be
+/// pretty good. The first two parameters are sum and difference of
+/// endpoint angles, and the second two are sum and difference of control
+/// lengths as a multiple of the two-parabola lengths.
+fn params_to_cubic(params: [f64; 4]) -> CubicBez {
+    let [a, b, c, d] = params;
+    let (th0, th1) = (a + b, a - b);
+    let (s0, c0) = th0.sin_cos();
+    let (s1, c1) = th1.sin_cos();
+    let (x1, x2) = (c + d, c - d);
+    let d0 = (1. + x1) * (2. / 3.) / (1. + c0);
+    let d1 = (1. + x2) * (2. / 3.) / (1. + c1);
+    let y1 = s0 * d0;
+    let x1 = c0 * d0 - 1. / 3.;
+    let y2 = s1 * d1;
+    let x2 = c1 * d1 - 1. / 3.;
+    CubicBez::new((0., 0.), (1. / 3. + x1, y1), (2. / 3. - x2, y2), (1., 0.))
+}
+
+fn cubic_cheb() {
+    for order in 1..=5 {
+        println!("    // order {order}");
+        let f = |params: [f64; 4]| {
+            let c = params_to_cubic(params);
+            cheb::cubic_to_chebs(&c)
+        };
+        cheb::cheb_deriv_order(order, f, cheb::ReportStyle::Derivs);
+    }
+}
+
+const OFFSET_DERIV_EPS: f64 = 3e-2;
+fn offset_cheb() {
+    for order in 1..=5 {
+        println!("    // order {order}");
+        let f = |params: [f64; 4]| {
+            let c = params_to_cubic(params);
+            let normed_plus = NormOffset::new(c, OFFSET_DERIV_EPS);
+            let plus_chebs = normed_plus.to_chebs();
+            let normed_minus = NormOffset::new(c, -OFFSET_DERIV_EPS);
+            let minus_chebs = normed_minus.to_chebs();
+            let mut chebs = [0.0; 6];
+            for i in 0..6 {
+                chebs[i] = (plus_chebs[i] - minus_chebs[i]) * (0.5 / OFFSET_DERIV_EPS)
+            }
+            chebs
+        };
+        cheb::cheb_deriv_order(order, f, cheb::ReportStyle::Polynom);
+    }
+}
+
 fn main() {
     // err_metric_main();
     // arclen_foo();
-    cheb_foo();
+    // cheb_foo();
+    //cubic_cheb();
+    offset_cheb();
 }

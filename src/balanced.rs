@@ -32,7 +32,6 @@ impl BalancedBez {
         )
     }
 
-    #[allow(unused)]
     pub fn from_cubic(c: CubicBez) -> Self {
         let d01 = c.p1 - c.p0;
         let d23 = c.p3 - c.p2;

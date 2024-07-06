@@ -18,3 +18,20 @@ pub fn normalize_bez(c: CubicBez) -> (CubicBez, f64) {
         chord_len,
     )
 }
+
+/// This function is the inverse of `params_to_cubic`.
+pub fn normed_bez_to_params(c: CubicBez) -> [f64; 4] {
+    let th0 = c.p1.y.atan2(c.p1.x);
+    let th1 = c.p2.y.atan2(1.0 - c.p2.x);
+    let d0 = c.p1.y.hypot(c.p1.x);
+    let d1 = c.p2.y.hypot(1.0 - c.p2.x);
+    let e0_inv = 1.5 * (1.0 + th0.cos());
+    let e1_inv = 1.5 * (1.0 + th1.cos());
+    let a = 0.5 * (th0 + th1);
+    let b = 0.5 * (th0 - th1);
+    let d0_normed = d0 * e0_inv - 1.0;
+    let d1_normed = d1 * e1_inv - 1.0;
+    let c = 0.5 * (d0_normed + d1_normed);
+    let d = 0.5 * (d0_normed - d1_normed);
+    [a, b, c, d]
+}

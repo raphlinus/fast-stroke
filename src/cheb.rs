@@ -5,7 +5,7 @@ use std::f64::consts::PI;
 use kurbo::{CubicBez, ParamCurve, ParamCurveArclen, ParamCurveDeriv};
 
 pub const N_CHEB: usize = 6;
-const DERIV_EPS: f64 = 3e-2;
+const DERIV_EPS: f64 = 1e-2;
 
 fn deriv_x(i: usize, order: usize) -> f64 {
     (i as f64 - 0.5 * order as f64) * DERIV_EPS
@@ -24,7 +24,37 @@ fn binom(i: usize, n: usize) -> i32 {
     a[i]
 }
 
-fn cheb_deriv_1(orders: [usize; 4], f: impl Fn([f64; 4]) -> [f64; N_CHEB]) {
+#[derive(Clone, Copy)]
+pub enum ReportStyle {
+    StupidDebug,
+    Polynom,
+    Derivs,
+}
+
+fn fact(x: usize) -> f64 {
+    [1.0, 1.0, 2.0, 6.0, 24.0, 120.0, 720.0][x]
+}
+
+fn term_expr(orders: &[usize]) -> String {
+    use std::fmt::Write;
+    let mut term = String::new();
+    for (i, order) in orders.iter().enumerate() {
+        let add = if term.is_empty() { "" } else { " * " };
+        if *order == 1 {
+            _ = write!(&mut term, "{add}x{i}");
+        } else if *order == 2 {
+            _ = write!(&mut term, "{add}x{i} * x{i}");
+        } else if *order > 0 {
+            _ = write!(&mut term, "{add}x{i}.powi({order})");
+        }
+    }
+    if term.is_empty() {
+        _ = write!(&mut term, "1.0");
+    }
+    term
+}
+
+fn cheb_deriv_1(orders: [usize; 4], f: impl Fn([f64; 4]) -> [f64; N_CHEB], report: ReportStyle) {
     let mut sums = [0.0; N_CHEB];
     for i0 in 0..=orders[0] {
         let x0 = deriv_x(i0, orders[0]);
@@ -46,14 +76,44 @@ fn cheb_deriv_1(orders: [usize; 4], f: impl Fn([f64; 4]) -> [f64; N_CHEB]) {
             }
         }
     }
-    let scale = (1. / DERIV_EPS).powi(orders.iter().sum::<usize>() as i32);
+    let fact_scale: f64 = orders.iter().map(|order| fact(*order)).product();
+    let scale = (1. / DERIV_EPS).powi(orders.iter().sum::<usize>() as i32) / fact_scale;
     for sum in &mut sums {
         *sum *= scale;
     }
-    println!("{orders:?}: {sums:.3?}");
+    const THRESH: f64 = 1e-3;
+    match report {
+        ReportStyle::StupidDebug => println!("{orders:?}: {sums:.3?}"),
+        ReportStyle::Polynom => {
+            if sums[1..].iter().any(|x| x.abs() > THRESH) {
+                println!("    let term = {};", term_expr(&orders));
+                for (i, sum) in sums.iter().enumerate() {
+                    if i > 0 && sum.abs() > THRESH {
+                        println!("    c{i} += {} * term;", sum);
+                    }
+                }
+            }
+        }
+        ReportStyle::Derivs => {
+            if sums[1..].iter().any(|x| x.abs() > THRESH) {
+                for (j, order) in orders.iter().enumerate() {
+                    if *order > 0 {
+                        let mut d_orders = orders;
+                        d_orders[j] -= 1;
+                        println!("    let term_{j} = {};", term_expr(&d_orders));
+                        for (i, sum) in sums.iter().enumerate() {
+                            if i > 0 && sum.abs() > THRESH {
+                                println!("    dc{i}_dx{j} += {} * term_{j};", *order as f64 * sum);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-fn cheb_deriv_order(order: usize, f: impl Fn([f64; 4]) -> [f64; N_CHEB]) {
+pub fn cheb_deriv_order(order: usize, f: impl Fn([f64; 4]) -> [f64; N_CHEB], report: ReportStyle) {
     for o0 in 0..=order {
         let rem = order - o0;
         for o1 in 0..=rem {
@@ -61,7 +121,7 @@ fn cheb_deriv_order(order: usize, f: impl Fn([f64; 4]) -> [f64; N_CHEB]) {
             for o2 in 0..=rem {
                 let rem = rem - o2;
                 let o3 = rem;
-                cheb_deriv_1([o0, o1, o2, o3], &f);
+                cheb_deriv_1([o0, o1, o2, o3], &f, report);
             }
         }
     }
@@ -91,7 +151,7 @@ pub fn chebs_generic<const N: usize>(x: f64) -> [f64; N] {
     result
 }
 
-fn cubic_to_chebs(c: &CubicBez) -> [f64; N_CHEB] {
+pub fn cubic_to_chebs(c: &CubicBez) -> [f64; N_CHEB] {
     let mut sums = [0.0; N_CHEB];
     let q = c.deriv();
     const ARCLEN_ACCURACY: f64 = 1e-15;
@@ -200,6 +260,14 @@ impl Cheb {
             v.push((self.0[i - 1] - self.get(i + 1)) * 0.5 / i as f64);
         }
         Cheb(v)
+    }
+}
+
+impl std::ops::Mul<f64> for &Cheb {
+    type Output = Cheb;
+
+    fn mul(self, rhs: f64) -> Cheb {
+        Cheb(self.0.iter().map(|x| x * rhs).collect())
     }
 }
 
