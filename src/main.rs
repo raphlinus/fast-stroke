@@ -1,12 +1,14 @@
 // This project is full of experiments.
 #![allow(unused)]
 
+mod approx;
 mod balanced;
 mod cheb;
 mod norm_bez;
+mod offset;
 
 use balanced::BalancedBez;
-use cheb::{Cheb, N_CHEB};
+use cheb::{cubic_to_chebs, Cheb, N_CHEB};
 use kurbo::{
     common::solve_quadratic, offset::CubicOffset, Affine, CubicBez, ParamCurve, ParamCurveArclen,
     ParamCurveDeriv, ParamCurveFit, Point, Shape,
@@ -426,24 +428,61 @@ fn cubic_cheb() {
     }
 }
 
+fn offset_partial_cheb(c: CubicBez) -> [f64; 6] {
+    let normed_plus = NormOffset::new(c, OFFSET_DERIV_EPS);
+    let plus_chebs = normed_plus.to_chebs();
+    let normed_minus = NormOffset::new(c, -OFFSET_DERIV_EPS);
+    let minus_chebs = normed_minus.to_chebs();
+    let mut chebs = [0.0; 6];
+    for i in 0..6 {
+        chebs[i] = (plus_chebs[i] - minus_chebs[i]) * (0.5 / OFFSET_DERIV_EPS)
+    }
+    chebs
+}
+
 const OFFSET_DERIV_EPS: f64 = 3e-2;
 fn offset_cheb() {
     for order in 1..=5 {
         println!("    // order {order}");
-        let f = |params: [f64; 4]| {
-            let c = params_to_cubic(params);
-            let normed_plus = NormOffset::new(c, OFFSET_DERIV_EPS);
-            let plus_chebs = normed_plus.to_chebs();
-            let normed_minus = NormOffset::new(c, -OFFSET_DERIV_EPS);
-            let minus_chebs = normed_minus.to_chebs();
-            let mut chebs = [0.0; 6];
-            for i in 0..6 {
-                chebs[i] = (plus_chebs[i] - minus_chebs[i]) * (0.5 / OFFSET_DERIV_EPS)
-            }
-            chebs
-        };
+        let f = |params: [f64; 4]| offset_partial_cheb(params_to_cubic(params));
         cheb::cheb_deriv_order(order, f, cheb::ReportStyle::Polynom);
     }
+}
+
+fn random_cubic() -> CubicBez {
+    let mut rng = thread_rng();
+    let th0 = rng.gen_range(0.0f64..0.5);
+    let th1 = rng.gen_range(-0.5f64..0.5);
+    let d0 = rng.gen_range(0.1..0.6);
+    let d1 = rng.gen_range(0.1..0.6);
+    let p2 = Point::new(1.0 - d1 * th1.cos(), d1 * th1.sin());
+    let p1 = Point::new(d0 * th0.cos(), d0 * th0.sin());
+    CubicBez::new(Point::ORIGIN, p1, p2, Point::new(1.0, 0.0))
+}
+
+fn param_scaling() {
+    let c = random_cubic();
+    println!("{:?}", norm_bez::normed_bez_to_params(c));
+    let c_subdiv = c.subsegment(0.45..0.55);
+    let norm_subdiv = norm_bez::normalize_bez(c_subdiv).0;
+    println!("{:?}", norm_bez::normed_bez_to_params(norm_subdiv));
+}
+
+fn check_offset() {
+    let c = random_cubic();
+    let params = norm_bez::normed_bez_to_params(c);
+    println!("params: {:.4?}", params);
+    println!("offset_partial_cheb: {:.4?}", offset_partial_cheb(c));
+    println!(
+        "          by approx: {:.4?}",
+        approx::approx_offset_chebs(params)
+    );
+    for p in approx::approx_partials(params) {
+        println!("{p:.4?}");
+    }
+    let c_offset = offset::approx_offset(c, 0.1);
+    println!("{}", c.to_path(1e-9).to_svg());
+    println!("{}", c_offset.to_path(1e-9).to_svg());
 }
 
 fn main() {
@@ -451,5 +490,7 @@ fn main() {
     // arclen_foo();
     // cheb_foo();
     //cubic_cheb();
-    offset_cheb();
+    //offset_cheb();
+    //param_scaling();
+    check_offset();
 }

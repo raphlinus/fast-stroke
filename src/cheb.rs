@@ -229,16 +229,19 @@ impl Cheb {
         Cheb(v)
     }
 
-    fn l2_norm(&self) -> f64 {
-        let s = self.square();
-        let mut sum = s.0[0];
-        for i in (2..s.0.len()).step_by(2) {
-            sum -= s.0[i] / ((i * i - 1) as f64);
+    pub fn def_integral(&self) -> f64 {
+        let mut sum = self.0[0];
+        for i in (2..self.0.len()).step_by(2) {
+            sum -= self.0[i] / ((i * i - 1) as f64);
         }
-        sum.sqrt()
+        sum
     }
 
-    fn zero_endpoints(&mut self) {
+    fn l2_norm(&self) -> f64 {
+        self.square().def_integral().sqrt()
+    }
+
+    pub fn zero_endpoints(&mut self) {
         let mut even = 0.0;
         for i in (2..self.0.len()).step_by(2) {
             even += self.0[i];
