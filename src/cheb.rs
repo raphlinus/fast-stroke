@@ -83,7 +83,11 @@ fn cheb_deriv_1(orders: [usize; 4], f: impl Fn([f64; 4]) -> [f64; N_CHEB], repor
     }
     const THRESH: f64 = 1e-3;
     match report {
-        ReportStyle::StupidDebug => println!("{orders:?}: {sums:.3?}"),
+        ReportStyle::StupidDebug => {
+            let exp = orders[0] + 2 * orders[1] + 2 * orders[2] + orders[3];
+            let tag = if exp > 5 { " " } else { "*" };
+            println!("{tag}{orders:?}: {sums:.3?}")
+        }
         ReportStyle::Polynom => {
             if sums[1..].iter().any(|x| x.abs() > THRESH) {
                 println!("    let term = {};", term_expr(&orders));
@@ -237,7 +241,7 @@ impl Cheb {
         sum
     }
 
-    fn l2_norm(&self) -> f64 {
+    pub fn l2_norm(&self) -> f64 {
         self.square().def_integral().sqrt()
     }
 

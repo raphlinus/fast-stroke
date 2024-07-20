@@ -4,6 +4,7 @@
 mod approx;
 mod balanced;
 mod cheb;
+mod euler;
 mod norm_bez;
 mod offset;
 
@@ -417,6 +418,17 @@ fn params_to_cubic(params: [f64; 4]) -> CubicBez {
     CubicBez::new((0., 0.), (1. / 3. + x1, y1), (2. / 3. - x2, y2), (1., 0.))
 }
 
+fn params_to_cubic_dumb(params: [f64; 4]) -> CubicBez {
+    let [a, b, c, d] = params;
+    let y1 = (1. / 3.) * (a + b);
+    let y2 = (1. / 3.) * (a - b);
+    let x1 = (1. / 3.) * (c + d);
+    let x2 = (1. / 3.) * (c - d);
+    let x1 = x1 - 0.75 * y1 * y1;
+    let x2 = x2 - 0.75 * y2 * y2;
+    CubicBez::new((0., 0.), (1. / 3. + x1, y1), (2. / 3. - x2, y2), (1., 0.))
+}
+
 fn cubic_cheb() {
     for order in 1..=5 {
         println!("    // order {order}");
@@ -424,7 +436,7 @@ fn cubic_cheb() {
             let c = params_to_cubic(params);
             cheb::cubic_to_chebs(&c)
         };
-        cheb::cheb_deriv_order(order, f, cheb::ReportStyle::Derivs);
+        cheb::cheb_deriv_order(order, f, cheb::ReportStyle::Polynom);
     }
 }
 
@@ -451,8 +463,8 @@ fn offset_cheb() {
 
 fn random_cubic() -> CubicBez {
     let mut rng = thread_rng();
-    let th0 = rng.gen_range(0.0f64..0.5);
-    let th1 = rng.gen_range(-0.5f64..0.5);
+    let th0 = rng.gen_range(0.0f64..1.0);
+    let th1 = rng.gen_range(-0.5f64..1.0);
     let d0 = rng.gen_range(0.1..0.6);
     let d1 = rng.gen_range(0.1..0.6);
     let p2 = Point::new(1.0 - d1 * th1.cos(), d1 * th1.sin());
@@ -492,5 +504,6 @@ fn main() {
     //cubic_cheb();
     //offset_cheb();
     //param_scaling();
-    check_offset();
+    //check_offset();
+    euler::run_sample();
 }
