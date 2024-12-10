@@ -46,8 +46,14 @@ pub fn approx_offset(c: CubicBez, offset: f64) -> CubicBez {
     let oc = crate::params_to_cubic(offset_params);
     CubicBez::new(
         p0,
-        p0 + Vec2::new(oc.p1.x * ch.x - oc.p1.y * ch.y, oc.p1.y * ch.x + oc.p1.x * ch.y),
-        p0 + Vec2::new(oc.p2.x * ch.x - oc.p2.y * ch.y, oc.p2.y * ch.x + oc.p2.x * ch.y),
-        p1
+        p0 + Vec2::new(
+            oc.p1.x * ch.x - oc.p1.y * ch.y,
+            oc.p1.y * ch.x + oc.p1.x * ch.y,
+        ),
+        p0 + Vec2::new(
+            oc.p2.x * ch.x - oc.p2.y * ch.y,
+            oc.p2.y * ch.x + oc.p2.x * ch.y,
+        ),
+        p1,
     )
 }

@@ -5,6 +5,7 @@ mod approx;
 mod balanced;
 mod cheb;
 mod euler;
+mod mat4;
 mod norm_bez;
 mod offset;
 
@@ -504,6 +505,6 @@ fn main() {
     //cubic_cheb();
     //offset_cheb();
     //param_scaling();
-    //check_offset();
-    euler::run_sample();
+    check_offset();
+    //euler::run_sample();
 }
