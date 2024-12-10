@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>HyperBez Toy | Xilem Web</title>
+    <link data-trunk rel="rust" data-bin="interactive" />
+    <style>
+      body {
+        background: #111;
+        color: white;
+        font-family: monospace;
+        margin: 0px;
+        padding: 1rem;
+        min-height: 20rem;
+        height: calc(100vh - 2rem);
+      }
+
+      button,
+      select,
+      input[type="text"] {
+        background: #222;
+        color: #ccc;
+        border: 1px solid #ccc;
+        border-radius: 2px;
+      }
+
+      #app-root {
+        display: grid;
+        grid-template-columns: 2fr 3fr;
+        height: calc(100vh - 2rem);
+      }
+
+      #toolbar {
+        position: fixed;
+        bottom: 1rem;
+        right: 1rem;
+      }
+
+      #pane-left {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      #ui {
+        display: flex;
+        flex-direction: row;
+        gap: 1rem;
+      }
+
+      #ui > div {
+        flex: 1;
+      }
+
+      #options {
+        display: grid;
+        grid-template-columns: 4rem 2fr 4rem;
+        gap: 0.2rem;
+      }
+
+      #options .spacer,
+      #options button,
+      #options select {
+        grid-column-end: span 3;
+      }
+
+      #options input[type="text"] {
+        font-family: inherit;
+        text-align: right;
+        background: transparent;
+        border: none;
+        width: 3rem;
+      }
+
+      .results {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .results .spacer {
+        grid-column-end: span 2;
+      }
+
+      .spacer {
+        height: 0.5rem;
+      }
+
+      .label {
+        text-align: right;
+      }
+
+      #render-sheet {
+        display: flex;
+      }
+
+      #cubicbez {
+        stroke-width: 1.5px;
+        stroke: #0a4;
+        fill: none;
+      }
+
+      #hyperbez {
+        stroke-width: 2px;
+        stroke: white;
+        fill: none;
+      }
+
+      #nodes circle {
+        fill: #e00;
+      }
+
+      .control circle {
+        fill: #07e;
+        cursor: grab;
+      }
+
+      .control line {
+        stroke-width: 1.5px;
+        stroke: #ca0;
+      }
+
+      .control .area-qoppa {
+        stroke: none;
+        fill: #7777;
+      }
+
+      .control .area-kappa-qoppa {
+        stroke: none;
+        fill: #0708;
+      }
+
+      #plots {
+        flex: 1;
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        padding: 1rch;
+      }
+
+      .axis {
+        stroke: #aaa;
+        font-size: 12pt;
+        font-weight: lighter;
+      }
+
+      g.x text {
+        dominant-baseline: hanging;
+        text-anchor: middle;
+      }
+
+      g.y text {
+        dominant-baseline: middle;
+        text-anchor: end;
+      }
+
+      .axis .caption {
+        dominant-baseline: hanging;
+        text-anchor: start;
+      }
+
+      .trace {
+        stroke: white;
+        fill: none;
+      }
+
+      .hover circle {
+        /* fill: #2be; */
+        fill: #f8f;
+      }
+
+      .plot .hover line {
+        stroke: #aaa;
+      }
+
+      #render-sheet .hover line {
+        stroke: #aaa;
+        stroke-width: 1.5px;
+      }
+
+      #tangent {
+        stroke-dasharray: 5px, 5px;
+      }
+
+      #curvature {
+        stroke-dasharray: 2px, 2px;
+      }
+
+      rect.red {
+        fill: #e00;
+      }
+
+      line {
+        stroke: #444;
+      }
+
+      #beztoy-container-inner circle {
+        fill: #66e;
+      }
+    </style>
+  </head>
+
+  <body></body>
+</html>
