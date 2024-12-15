@@ -61,7 +61,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 40.0;
+    let d = 20.0;
     let delta = perturb::linear_approx(c);
     let c_offset = CubicBez::new(
         c.p0 + d * delta.p0.to_vec2(),
@@ -71,6 +71,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     );
     let path_offset = c_offset.to_path(0.0);
     let error = perturb::plot_error(c, delta);
+    let err2 = perturb::plot(&perturb::error_by_rays(c, d, c_offset));
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
     let svg_el = svg(g((
@@ -82,6 +83,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
         error.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
+        err2.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
