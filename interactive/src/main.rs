@@ -63,15 +63,15 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 50.0;
     //perturb::scaling_test(c, d);
-    let delta = perturb::two_point_approx(c);
-    let c_offset = CubicBez::new(
+    let delta = perturb::one_point(c);
+    let c_one_point = CubicBez::new(
         c.p0 + d * delta.p0.to_vec2(),
         c.p1 + d * delta.p1.to_vec2(),
         c.p2 + d * delta.p2.to_vec2(),
         c.p3 + d * delta.p3.to_vec2(),
     );
-    let path_offset = c_offset.to_path(0.0);
-    let err2 = perturb::plot(&perturb::error_by_rays(c, d, c_offset));
+    let path_one_point = c_one_point.to_path(0.0);
+    let err_one_point = perturb::plot(&perturb::error_by_rays(c, d, c_one_point));
 
     let delta_minmax = perturb::linear_minmax(c);
     let c_minmax = CubicBez::new(
@@ -82,8 +82,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     );
     let path_minmax = c_minmax.to_path(0.0);
     let err_minmax = perturb::plot(&perturb::error_by_rays(c, d, c_minmax));
-    let error = perturb::plot_error(c, delta_minmax);
-    let spline_error = perturb::spline_error(c, delta_minmax);
+    let err_lin_minmax = perturb::plot_error(c, delta_minmax);
+    //let spline_error = perturb::spline_error(c, delta_minmax);
     let [y0, y1, y2] = perturb::est_err_bounds(c, delta_minmax);
 
     const NONE: Color = Color::TRANSPARENT;
@@ -102,14 +102,21 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_minmax
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        error.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
+        path_one_point
+            .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
         // spline_error
         // .stroke(Color::MEDIUM_ORCHID, stroke_thin.clone())
         // .fill(NONE),
-        // err2.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
-        // err_minmax
-        //     .stroke(Color::LIME, stroke_thin.clone())
-        //     .fill(NONE),
+        err_lin_minmax
+            .stroke(Color::LIME, stroke_thin.clone())
+            .fill(NONE),
+        err_one_point
+            .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
+        err_minmax
+            .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),

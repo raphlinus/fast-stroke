@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 5.0;
+const ERROR_SCALE: f64 = 10.0;
 
 struct CurveOffset {
     c: CubicBez,
@@ -261,6 +261,7 @@ pub fn linear_minmax(c: CubicBez) -> CubicBez {
     let b23 = co.q.p2.to_vec2();
     let n0 = turn(b01).normalize();
     let n1 = turn(b23).normalize();
+    // probably want to renumber to 1, 2, 3, as 0 is not start point
     let t0 = 1. / 6.;
     let t1 = 0.5;
     let t2 = 1.0 - t0;
@@ -284,6 +285,31 @@ pub fn linear_minmax(c: CubicBez) -> CubicBez {
         (n0 + a * b01).to_point(),
         (n1 + b * b23).to_point(),
         n1.to_point(),
+    )
+}
+
+/// One point shape control, straight up
+pub fn one_point(c: CubicBez) -> CubicBez {
+    let q = c.deriv();
+    let b01 = q.p0.to_vec2();
+    let b23 = q.p2.to_vec2();
+    let n0 = turn(b01).normalize();
+    let n3 = turn(b23).normalize();
+    let t1 = 0.5;
+    let (w0, w1, w2, w3) = (0.125, 0.375, 0.375, 0.125);
+    let n1 = turn(q.eval(t1).to_vec2().normalize());
+    let ca = w1 * b01;
+    let cb = w2 * b23;
+    let cc = (w0 + w1) * n0 + (w2 + w3) * n3;
+    let z = n1 - cc;
+    let det = ca.cross(cb);
+    let a = z.cross(cb) / det;
+    let b = ca.cross(z) / det;
+    CubicBez::new(
+        n0.to_point(),
+        (n0 + a * b01).to_point(),
+        (n3 + b * b23).to_point(),
+        n3.to_point(),
     )
 }
 
