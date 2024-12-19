@@ -84,7 +84,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_minmax = perturb::plot(&perturb::error_by_rays(c, d, c_minmax));
     let error = perturb::plot_error(c, delta_minmax);
     let spline_error = perturb::spline_error(c, delta_minmax);
-    let (ymin, ymax) = perturb::est_err_bounds(c, delta_minmax);
+    let [y0, y1, y2] = perturb::est_err_bounds(c, delta_minmax);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -92,8 +92,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new(state.p0, state.p1).stroke(Color::BLUE, stroke.clone()),
         Line::new(state.p2, state.p3).stroke(Color::BLUE, stroke.clone()),
         Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
-        Line::new((100., ymin), (600., ymin)).stroke(Color::LIME, stroke.clone()),
-        Line::new((100., ymax), (600., ymax)).stroke(Color::LIME, stroke.clone()),
+        Line::new((100., 200. - y0), (267., 200. - y0)).stroke(Color::LIME, stroke.clone()),
+        Line::new((100., 200. + y0), (267., 200. + y0)).stroke(Color::LIME, stroke.clone()),
+        Line::new((267., 200. - y1), (433., 200. - y1)).stroke(Color::LIME, stroke.clone()),
+        Line::new((267., 200. + y1), (433., 200. + y1)).stroke(Color::LIME, stroke.clone()),
+        Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
+        Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         path_minmax
             .stroke(Color::YELLOW, stroke_thin.clone())

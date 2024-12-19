@@ -94,17 +94,16 @@ impl CurveOffset {
 // Produce the delta for the given curve
 pub fn two_point_approx(c: CubicBez) -> CubicBez {
     let co = CurveOffset::new(c);
-    let q = c.deriv();
-    let b01 = q.p0.to_vec2();
-    let b23 = q.p2.to_vec2();
+    let b01 = co.q.p0.to_vec2();
+    let b23 = co.q.p2.to_vec2();
     let n0 = turn(b01).normalize();
     let n1 = turn(b23).normalize();
     let t0 = 1.0 / 3.0;
     let t1 = 2.0 / 3.0;
     let (ca0, cb0, cc0) = co.coefs_at(t0);
     let (ca1, cb1, cc1) = co.coefs_at(t1);
-    let z0 = -q.eval(t0).to_vec2().hypot() - cc0;
-    let z1 = -q.eval(t1).to_vec2().hypot() - cc1;
+    let z0 = -co.q.eval(t0).to_vec2().hypot() - cc0;
+    let z1 = -co.q.eval(t1).to_vec2().hypot() - cc1;
     let det = ca0 * cb1 - ca1 * cb0;
     let a = (z0 * cb1 - z1 * cb0) / det;
     let b = (ca0 * z1 - ca1 * z0) / det;
@@ -165,25 +164,20 @@ pub fn spline_error(c: CubicBez, delta: CubicBez) -> BezPath {
     Affine::translate(PLOT_TRANSLATE) * PLOT_SCALE * result
 }
 
-pub fn est_err_bounds(c: CubicBez, delta: CubicBez) -> (f64, f64) {
+pub fn est_err_bounds(c: CubicBez, delta: CubicBez) -> [f64; 3] {
     let co = CurveOffset::new(c);
     let (a, b) = co.recover_ab_from_delta(delta);
     let mut max_err = 0.0;
     let mut max_d_err = 0.0;
     let t1 = 1. / 6.;
-    for t in [t1, 0.5, 1.0 - t1] {
+    [t1, 0.5, 1.0 - t1].map(|t| {
         let y = co.error_at(t, a, b);
         let d = co.deriv_error_at(t, a, b);
-        max_err = y.abs().max(max_err);
-        max_d_err = d.abs().max(max_d_err);
-    }
-    let d_scale = 0.3;
-    let max_err = max_err.hypot(d_scale * max_d_err);
-    let min_err = -max_err;
-    (
-        ERROR_SCALE * 500. * min_err + PLOT_TRANSLATE.y,
-        ERROR_SCALE * 500. * max_err + PLOT_TRANSLATE.y,
-    )
+        max_err = y.abs();
+        max_d_err = d.abs();
+        let d_scale = 0.3;
+        ERROR_SCALE * 500.0 * max_err.hypot(d_scale * max_d_err)
+    })
 }
 
 pub fn plot(xys: &[(f64, f64)]) -> BezPath {
@@ -262,35 +256,20 @@ pub fn scaling_test(c: CubicBez, d: f64) {
 /// zero. This roughly minimizes the maximum error for the first Chebyshev
 /// polynomial that can't be zeroed exactly.
 pub fn linear_minmax(c: CubicBez) -> CubicBez {
-    let q = c.deriv();
-    let b01 = q.p0.to_vec2();
-    let b12 = q.p1.to_vec2();
-    let b23 = q.p2.to_vec2();
+    let co = CurveOffset::new(c);
+    let b01 = co.q.p0.to_vec2();
+    let b23 = co.q.p2.to_vec2();
     let n0 = turn(b01).normalize();
     let n1 = turn(b23).normalize();
-    let coefs = |t: f64| {
-        let mt = 1.0 - t;
-        let ca =
-            6.0 * mt.powi(3) * t * t * b01.cross(b12) + 3.0 * mt * mt * t.powi(3) * b01.cross(b23);
-        let cb =
-            3.0 * mt.powi(3) * t * t * b23.cross(b01) + 6.0 * mt * mt * t.powi(3) * b23.cross(b12);
-        let cc = mt.powi(4) * (mt + 3.0 * t) * n0.cross(b01)
-            + mt * mt * t * t * (3.0 * mt + t) * n1.cross(b01)
-            + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0.cross(b12)
-            + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * n1.cross(b12)
-            + mt * mt * t * t * (mt + 3.0 * t) * n0.cross(b23)
-            + t.powi(4) * (3.0 * mt + t) * n1.cross(b23);
-        (ca, cb, cc)
-    };
     let t0 = 1. / 6.;
     let t1 = 0.5;
     let t2 = 1.0 - t0;
-    let (ca0, cb0, cc0) = coefs(t0);
-    let (ca1, cb1, cc1) = coefs(t1);
-    let (ca2, cb2, cc2) = coefs(t2);
-    let z0 = -q.eval(t0).to_vec2().hypot() - cc0;
-    let z1 = -q.eval(t1).to_vec2().hypot() - cc1;
-    let z2 = -q.eval(t2).to_vec2().hypot() - cc2;
+    let (ca0, cb0, cc0) = co.coefs_at(t0);
+    let (ca1, cb1, cc1) = co.coefs_at(t1);
+    let (ca2, cb2, cc2) = co.coefs_at(t2);
+    let z0 = -co.q.eval(t0).to_vec2().hypot() - cc0;
+    let z1 = -co.q.eval(t1).to_vec2().hypot() - cc1;
+    let z2 = -co.q.eval(t2).to_vec2().hypot() - cc2;
     let ca01 = ca0 + ca1;
     let cb01 = cb0 + cb1;
     let z01 = z0 + z1;
