@@ -1,3 +1,4 @@
+use kurbo::QuadBez;
 // Doing lots of experiments, will try things and then move on.
 #[allow(unused)]
 use kurbo::{
@@ -10,32 +11,98 @@ fn turn(v: Vec2) -> Vec2 {
 
 const ERROR_SCALE: f64 = 5.0;
 
+struct CurveOffset {
+    c: CubicBez,
+    q: QuadBez,
+    b01xb12: f64,
+    b01xb23: f64,
+    b12xb23: f64,
+    n0xb01: f64,
+    n1xb01: f64,
+    n0xb12: f64,
+    n1xb12: f64,
+    n0xb23: f64,
+    n1xb23: f64,
+}
+
+impl CurveOffset {
+    fn new(c: CubicBez) -> Self {
+        let q = c.deriv();
+        let b01 = q.p0.to_vec2();
+        let b12 = q.p1.to_vec2();
+        let b23 = q.p2.to_vec2();
+        let n0 = turn(b01).normalize();
+        let n1 = turn(b23).normalize();
+        let b01xb12 = b01.cross(b12);
+        let b01xb23 = b01.cross(b23);
+        let b12xb23 = b12.cross(b23);
+        let n0xb01 = n0.cross(b01);
+        let n1xb01 = n1.cross(b01);
+        let n0xb12 = n0.cross(b12);
+        let n1xb12 = n1.cross(b12);
+        let n0xb23 = n0.cross(b23);
+        let n1xb23 = n1.cross(b23);
+        CurveOffset {
+            c,
+            q,
+            b01xb12,
+            b01xb23,
+            b12xb23,
+            n0xb01,
+            n1xb01,
+            n0xb12,
+            n1xb12,
+            n0xb23,
+            n1xb23,
+        }
+    }
+
+    fn coefs_at(&self, t: f64) -> (f64, f64, f64) {
+        let mt = 1.0 - t;
+        let ca = 6.0 * mt.powi(3) * t * t * self.b01xb12 + 3.0 * mt * mt * t.powi(3) * self.b01xb23;
+        let cb =
+            -3.0 * mt.powi(3) * t * t * self.b01xb23 + -6.0 * mt * mt * t.powi(3) * self.b12xb23;
+        let cc = mt.powi(4) * (mt + 3.0 * t) * self.n0xb01
+            + mt * mt * t * t * (3.0 * mt + t) * self.n1xb01
+            + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * self.n0xb12
+            + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * self.n1xb12
+            + mt * mt * t * t * (mt + 3.0 * t) * self.n0xb23
+            + t.powi(4) * (3.0 * mt + t) * self.n1xb23;
+        (ca, cb, cc)
+    }
+
+    fn error_at(&self, t: f64, a: f64, b: f64) -> f64 {
+        let (ca, cb, cc) = self.coefs_at(t);
+        -(ca * a + cb * b + cc) / self.q.eval(t).to_vec2().hypot() - 1.0
+    }
+
+    fn recover_ab_from_delta(&self, delta: CubicBez) -> (f64, f64) {
+        let b01 = self.q.p0.to_vec2();
+        let b23 = self.q.p2.to_vec2();
+        let a = (delta.p1 - delta.p0).dot(b01) / b01.hypot2();
+        let b = (delta.p2 - delta.p3).dot(b23) / b23.hypot2();
+        (a, b)
+    }
+
+    fn deriv_error_at(&self, t: f64, a: f64, b: f64) -> f64 {
+        // Sure we could do this analytically, but just experimenting
+        const DT: f64 = 1e-6;
+        (self.error_at(t + DT, a, b) - self.error_at(t - DT, a, b)) * (0.5 / DT)
+    }
+}
+
 // Produce the delta for the given curve
-pub fn linear_approx(c: CubicBez) -> CubicBez {
+pub fn two_point_approx(c: CubicBez) -> CubicBez {
+    let co = CurveOffset::new(c);
     let q = c.deriv();
     let b01 = q.p0.to_vec2();
-    let b12 = q.p1.to_vec2();
     let b23 = q.p2.to_vec2();
     let n0 = turn(b01).normalize();
     let n1 = turn(b23).normalize();
-    let coefs = |t: f64| {
-        let mt = 1.0 - t;
-        let ca =
-            6.0 * mt.powi(3) * t * t * b01.cross(b12) + 3.0 * mt * mt * t.powi(3) * b01.cross(b23);
-        let cb =
-            3.0 * mt.powi(3) * t * t * b23.cross(b01) + 6.0 * mt * mt * t.powi(3) * b23.cross(b12);
-        let cc = mt.powi(4) * (mt + 3.0 * t) * n0.cross(b01)
-            + mt * mt * t * t * (3.0 * mt + t) * n1.cross(b01)
-            + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0.cross(b12)
-            + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * n1.cross(b12)
-            + mt * mt * t * t * (mt + 3.0 * t) * n0.cross(b23)
-            + t.powi(4) * (3.0 * mt + t) * n1.cross(b23);
-        (ca, cb, cc)
-    };
     let t0 = 1.0 / 3.0;
     let t1 = 2.0 / 3.0;
-    let (ca0, cb0, cc0) = coefs(t0);
-    let (ca1, cb1, cc1) = coefs(t1);
+    let (ca0, cb0, cc0) = co.coefs_at(t0);
+    let (ca1, cb1, cc1) = co.coefs_at(t1);
     let z0 = -q.eval(t0).to_vec2().hypot() - cc0;
     let z1 = -q.eval(t1).to_vec2().hypot() - cc1;
     let det = ca0 * cb1 - ca1 * cb0;
@@ -49,33 +116,18 @@ pub fn linear_approx(c: CubicBez) -> CubicBez {
     )
 }
 
+const PLOT_TRANSLATE: Vec2 = Vec2::new(100., 200.);
+const PLOT_SCALE: Affine = Affine::scale(500.0);
+
 pub fn plot_error(c: CubicBez, delta: CubicBez) -> BezPath {
     let mut result = BezPath::new();
-    let q = c.deriv();
-    let b01 = q.p0.to_vec2();
-    let b12 = q.p1.to_vec2();
-    let b23 = q.p2.to_vec2();
-    let n0 = turn(b01).normalize();
-    let n1 = turn(b23).normalize();
-    let a = delta.p1 - delta.p0;
-    let b = delta.p2 - delta.p3;
-    let error = |t: f64| {
-        let mt = 1.0 - t;
-        let ca = 6.0 * mt.powi(3) * t * t * a.cross(b12) + 3.0 * mt * mt * t.powi(3) * a.cross(b23);
-        let cb = 3.0 * mt.powi(3) * t * t * b.cross(b01) + 6.0 * mt * mt * t.powi(3) * b.cross(b12);
-        let cc = mt.powi(4) * (mt + 3.0 * t) * n0.cross(b01)
-            + mt * mt * t * t * (3.0 * mt + t) * n1.cross(b01)
-            + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0.cross(b12)
-            + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * n1.cross(b12)
-            + mt * mt * t * t * (mt + 3.0 * t) * n0.cross(b23)
-            + t.powi(4) * (3.0 * mt + t) * n1.cross(b23);
-        -(ca + cb + cc) / q.eval(t).to_vec2().hypot() - 1.0
-    };
+    let co = CurveOffset::new(c);
+    let (a, b) = co.recover_ab_from_delta(delta);
     const N: usize = 50;
     for i in 0..=N {
         let t = i as f64 / N as f64;
-        let y = ERROR_SCALE * error(t);
-        let p = Affine::translate((100., 200.)) * Affine::scale(500.) * Point::new(t, y);
+        let y = ERROR_SCALE * co.error_at(t, a, b);
+        let p = PLOT_SCALE * Point::new(t, y) + PLOT_TRANSLATE;
         if i == 0 {
             result.move_to(p);
         } else {
@@ -83,6 +135,55 @@ pub fn plot_error(c: CubicBez, delta: CubicBez) -> BezPath {
         }
     }
     result
+}
+
+pub fn spline_error(c: CubicBez, delta: CubicBez) -> BezPath {
+    let mut result = BezPath::new();
+    let co = CurveOffset::new(c);
+    let (a, b) = co.recover_ab_from_delta(delta);
+    result.move_to(Point::ZERO);
+    let mut hermite = |t0, y0, d0, t1, y1, d1| {
+        let d_scale = (1. / 3.) * (t1 - t0);
+        let p1 = (t0 + d_scale, ERROR_SCALE * (y0 + d_scale * d0));
+        let p2 = (t1 - d_scale, ERROR_SCALE * (y1 - d_scale * d1));
+        let p3 = (t1, ERROR_SCALE * y1);
+        result.curve_to(p1, p2, p3);
+    };
+    let t1 = 1. / 6.;
+    let y1 = co.error_at(t1, a, b);
+    let d1 = co.deriv_error_at(t1, a, b);
+    hermite(0.0, 0.0, 0.0, t1, y1, d1);
+    let t2 = 0.5;
+    let y2 = co.error_at(t2, a, b);
+    let d2 = co.deriv_error_at(t2, a, b);
+    hermite(t1, y1, d1, t2, y2, d2);
+    let t3 = 1.0 - t1;
+    let y3 = co.error_at(t3, a, b);
+    let d3 = co.deriv_error_at(t3, a, b);
+    hermite(t2, y2, d2, t3, y3, d3);
+    hermite(t3, y3, d3, 1.0, 0.0, 0.0);
+    Affine::translate(PLOT_TRANSLATE) * PLOT_SCALE * result
+}
+
+pub fn est_err_bounds(c: CubicBez, delta: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let (a, b) = co.recover_ab_from_delta(delta);
+    let mut max_err = 0.0;
+    let mut max_d_err = 0.0;
+    let t1 = 1. / 6.;
+    for t in [t1, 0.5, 1.0 - t1] {
+        let y = co.error_at(t, a, b);
+        let d = co.deriv_error_at(t, a, b);
+        max_err = y.abs().max(max_err);
+        max_d_err = d.abs().max(max_d_err);
+    }
+    let d_scale = 0.3;
+    let max_err = max_err.hypot(d_scale * max_d_err);
+    let min_err = -max_err;
+    (
+        ERROR_SCALE * 500. * min_err + PLOT_TRANSLATE.y,
+        ERROR_SCALE * 500. * max_err + PLOT_TRANSLATE.y,
+    )
 }
 
 pub fn plot(xys: &[(f64, f64)]) -> BezPath {
@@ -139,7 +240,7 @@ pub fn scaling_test(c: CubicBez, d: f64) {
     for i in 0..5 {
         let scale = 0.5f64.powf(i as f64 / 5.0);
         let c_s = c.subsegment(0.5 - 0.5 * scale..0.5 + 0.5 * scale);
-        let delta = linear_approx(c_s);
+        let delta = two_point_approx(c_s);
         let c_offset = CubicBez::new(
             c_s.p0 + d * delta.p0.to_vec2(),
             c_s.p1 + d * delta.p1.to_vec2(),
@@ -181,9 +282,9 @@ pub fn linear_minmax(c: CubicBez) -> CubicBez {
             + t.powi(4) * (3.0 * mt + t) * n1.cross(b23);
         (ca, cb, cc)
     };
-    let t0 = 1.0 / 6.0;
-    let t1 = 1.0 / 2.0;
-    let t2 = 5.0 / 6.0;
+    let t0 = 1. / 6.;
+    let t1 = 0.5;
+    let t2 = 1.0 - t0;
     let (ca0, cb0, cc0) = coefs(t0);
     let (ca1, cb1, cc1) = coefs(t1);
     let (ca2, cb2, cc2) = coefs(t2);

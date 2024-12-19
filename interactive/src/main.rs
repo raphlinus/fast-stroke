@@ -63,7 +63,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 50.0;
     //perturb::scaling_test(c, d);
-    let delta = perturb::linear_approx(c);
+    let delta = perturb::two_point_approx(c);
     let c_offset = CubicBez::new(
         c.p0 + d * delta.p0.to_vec2(),
         c.p1 + d * delta.p1.to_vec2(),
@@ -71,7 +71,6 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         c.p3 + d * delta.p3.to_vec2(),
     );
     let path_offset = c_offset.to_path(0.0);
-    let error = perturb::plot_error(c, delta);
     let err2 = perturb::plot(&perturb::error_by_rays(c, d, c_offset));
 
     let delta_minmax = perturb::linear_minmax(c);
@@ -83,6 +82,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     );
     let path_minmax = c_minmax.to_path(0.0);
     let err_minmax = perturb::plot(&perturb::error_by_rays(c, d, c_minmax));
+    let error = perturb::plot_error(c, delta_minmax);
+    let spline_error = perturb::spline_error(c, delta_minmax);
+    let (ymin, ymax) = perturb::est_err_bounds(c, delta_minmax);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -90,15 +92,20 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new(state.p0, state.p1).stroke(Color::BLUE, stroke.clone()),
         Line::new(state.p2, state.p3).stroke(Color::BLUE, stroke.clone()),
         Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
+        Line::new((100., ymin), (600., ymin)).stroke(Color::LIME, stroke.clone()),
+        Line::new((100., ymax), (600., ymax)).stroke(Color::LIME, stroke.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         path_minmax
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        //error.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
-        err2.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
-        err_minmax
-            .stroke(Color::LIME, stroke_thin.clone())
-            .fill(NONE),
+        error.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
+        // spline_error
+        // .stroke(Color::MEDIUM_ORCHID, stroke_thin.clone())
+        // .fill(NONE),
+        // err2.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
+        // err_minmax
+        //     .stroke(Color::LIME, stroke_thin.clone())
+        //     .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
