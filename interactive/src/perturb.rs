@@ -106,9 +106,24 @@ impl CurveOffset {
             self.c.p3 + d * delta.p3.to_vec2(),
         )
     }
+
+    /// Do a Newton step to refine a t value on the approximation.
+    ///
+    /// Given curve parameters, a t value on the generatrix, and an
+    /// approximate t value on the approximation, refine the latter.
+    fn newton_step_t(&self, a: f64, b: f64, d: f64, t: f64, ta: f64) -> f64 {
+        let ca = self.apply(a, b, d);
+        let p = self.c.eval(t);
+        let tan = self.q.eval(t).to_vec2();
+        let pa = ca.eval(ta);
+        let error = tan.dot(pa - p);
+        let qa = ca.deriv();
+        ta - error / tan.dot(qa.eval(ta).to_vec2())
+    }
 }
 
-// Produce the delta for the given curve
+// Produce the (a, b) for the given curve, making error zero at
+// t = 1/3 and 2/3 in the linear approximation.
 pub fn two_point_approx(c: CubicBez) -> (f64, f64) {
     let co = CurveOffset::new(c);
     let t0 = 1.0 / 3.0;
@@ -298,6 +313,38 @@ pub fn one_point(c: CubicBez) -> (f64, f64) {
     let a = z.cross(cb) / det;
     let b = ca.cross(z) / det;
     (a, b)
+}
+
+pub fn refine(c: CubicBez, a: f64, b: f64, d: f64) {
+    let co = CurveOffset::new(c);
+    let t = 1. / 6.;
+    let mut ta = t;
+    for i in 0..5 {
+        ta = co.newton_step_t(a, b, d, t, ta);
+        web_sys::console::log_1(&format!("{i}: {:.6}", ta).into());
+    }
+}
+
+// Estimate error by refining t approximation, Euclidean distance to
+// approximation, and tangent discrepancy
+pub fn est_err_refined(c: CubicBez, a: f64, b: f64, d: f64) -> [f64; 3] {
+    let co = CurveOffset::new(c);
+    let ca = co.apply(a, b, d);
+    let t1 = 0.2;
+    [t1, 0.5, 1.0 - t1].map(|t| {
+        let tan = co.q.eval(t).to_vec2();
+        let p = c.eval(t) + d * turn(tan.normalize());
+        let mut ta = t;
+        for _ in 0..1 {
+            ta = co.newton_step_t(a, b, d, t, t);
+        }
+        let pa = ca.eval(ta);
+        let dist_err = p.distance(pa);
+        let tana = ca.deriv().eval(ta).to_vec2();
+        let angle_err = tana.cross(tan).abs() / tan.hypot();
+        let err = dist_err + 0.15 * angle_err;
+        ERROR_SCALE * 500.0 * err / d
+    })
 }
 
 #[test]
