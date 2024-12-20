@@ -11,9 +11,11 @@ fn turn(v: Vec2) -> Vec2 {
 
 const ERROR_SCALE: f64 = 10.0;
 
-struct CurveOffset {
+pub struct CurveOffset {
     c: CubicBez,
     q: QuadBez,
+    n0: Vec2,
+    n1: Vec2,
     b01xb12: f64,
     b01xb23: f64,
     b12xb23: f64,
@@ -26,7 +28,7 @@ struct CurveOffset {
 }
 
 impl CurveOffset {
-    fn new(c: CubicBez) -> Self {
+    pub fn new(c: CubicBez) -> Self {
         let q = c.deriv();
         let b01 = q.p0.to_vec2();
         let b12 = q.p1.to_vec2();
@@ -45,6 +47,8 @@ impl CurveOffset {
         CurveOffset {
             c,
             q,
+            n0,
+            n1,
             b01xb12,
             b01xb23,
             b12xb23,
@@ -76,28 +80,37 @@ impl CurveOffset {
         -(ca * a + cb * b + cc) / self.q.eval(t).to_vec2().hypot() - 1.0
     }
 
-    fn recover_ab_from_delta(&self, delta: CubicBez) -> (f64, f64) {
-        let b01 = self.q.p0.to_vec2();
-        let b23 = self.q.p2.to_vec2();
-        let a = (delta.p1 - delta.p0).dot(b01) / b01.hypot2();
-        let b = (delta.p2 - delta.p3).dot(b23) / b23.hypot2();
-        (a, b)
-    }
-
     fn deriv_error_at(&self, t: f64, a: f64, b: f64) -> f64 {
         // Sure we could do this analytically, but just experimenting
         const DT: f64 = 1e-6;
         (self.error_at(t + DT, a, b) - self.error_at(t - DT, a, b)) * (0.5 / DT)
     }
+
+    pub fn make_delta(&self, a: f64, b: f64) -> CubicBez {
+        let b01 = self.q.p0.to_vec2();
+        let b23 = self.q.p2.to_vec2();
+        CubicBez::new(
+            self.n0.to_point(),
+            (self.n0 + a * b01).to_point(),
+            (self.n1 + b * b23).to_point(),
+            self.n1.to_point(),
+        )
+    }
+
+    pub fn apply(&self, a: f64, b: f64, d: f64) -> CubicBez {
+        let delta = self.make_delta(a, b);
+        CubicBez::new(
+            self.c.p0 + d * delta.p0.to_vec2(),
+            self.c.p1 + d * delta.p1.to_vec2(),
+            self.c.p2 + d * delta.p2.to_vec2(),
+            self.c.p3 + d * delta.p3.to_vec2(),
+        )
+    }
 }
 
 // Produce the delta for the given curve
-pub fn two_point_approx(c: CubicBez) -> CubicBez {
+pub fn two_point_approx(c: CubicBez) -> (f64, f64) {
     let co = CurveOffset::new(c);
-    let b01 = co.q.p0.to_vec2();
-    let b23 = co.q.p2.to_vec2();
-    let n0 = turn(b01).normalize();
-    let n1 = turn(b23).normalize();
     let t0 = 1.0 / 3.0;
     let t1 = 2.0 / 3.0;
     let (ca0, cb0, cc0) = co.coefs_at(t0);
@@ -107,21 +120,15 @@ pub fn two_point_approx(c: CubicBez) -> CubicBez {
     let det = ca0 * cb1 - ca1 * cb0;
     let a = (z0 * cb1 - z1 * cb0) / det;
     let b = (ca0 * z1 - ca1 * z0) / det;
-    CubicBez::new(
-        n0.to_point(),
-        (n0 + a * b01).to_point(),
-        (n1 + b * b23).to_point(),
-        n1.to_point(),
-    )
+    (a, b)
 }
 
 const PLOT_TRANSLATE: Vec2 = Vec2::new(100., 200.);
 const PLOT_SCALE: Affine = Affine::scale(500.0);
 
-pub fn plot_error(c: CubicBez, delta: CubicBez) -> BezPath {
+pub fn plot_error(c: CubicBez, a: f64, b: f64) -> BezPath {
     let mut result = BezPath::new();
     let co = CurveOffset::new(c);
-    let (a, b) = co.recover_ab_from_delta(delta);
     const N: usize = 50;
     for i in 0..=N {
         let t = i as f64 / N as f64;
@@ -136,10 +143,9 @@ pub fn plot_error(c: CubicBez, delta: CubicBez) -> BezPath {
     result
 }
 
-pub fn spline_error(c: CubicBez, delta: CubicBez) -> BezPath {
+pub fn spline_error(c: CubicBez, a: f64, b: f64) -> BezPath {
     let mut result = BezPath::new();
     let co = CurveOffset::new(c);
-    let (a, b) = co.recover_ab_from_delta(delta);
     result.move_to(Point::ZERO);
     let mut hermite = |t0, y0, d0, t1, y1, d1| {
         let d_scale = (1. / 3.) * (t1 - t0);
@@ -164,9 +170,8 @@ pub fn spline_error(c: CubicBez, delta: CubicBez) -> BezPath {
     Affine::translate(PLOT_TRANSLATE) * PLOT_SCALE * result
 }
 
-pub fn est_err_bounds(c: CubicBez, delta: CubicBez) -> [f64; 3] {
+pub fn est_err_bounds(c: CubicBez, a: f64, b: f64) -> [f64; 3] {
     let co = CurveOffset::new(c);
-    let (a, b) = co.recover_ab_from_delta(delta);
     let mut max_err = 0.0;
     let mut max_d_err = 0.0;
     let t1 = 1. / 6.;
@@ -234,13 +239,9 @@ pub fn scaling_test(c: CubicBez, d: f64) {
     for i in 0..5 {
         let scale = 0.5f64.powf(i as f64 / 5.0);
         let c_s = c.subsegment(0.5 - 0.5 * scale..0.5 + 0.5 * scale);
-        let delta = two_point_approx(c_s);
-        let c_offset = CubicBez::new(
-            c_s.p0 + d * delta.p0.to_vec2(),
-            c_s.p1 + d * delta.p1.to_vec2(),
-            c_s.p2 + d * delta.p2.to_vec2(),
-            c_s.p3 + d * delta.p3.to_vec2(),
-        );
+        let (a, b) = two_point_approx(c_s);
+        let co = CurveOffset::new(c_s);
+        let c_offset = co.apply(a, b, d);
         let mut max_err = 0.0;
         for (_, e) in error_by_rays(c_s, d, c_offset) {
             max_err = e.max(max_err);
@@ -255,12 +256,8 @@ pub fn scaling_test(c: CubicBez, d: f64) {
 /// The basic idea is to make e(1/6) + e(1/2) and e(1/2) + e(5/6) both
 /// zero. This roughly minimizes the maximum error for the first Chebyshev
 /// polynomial that can't be zeroed exactly.
-pub fn linear_minmax(c: CubicBez) -> CubicBez {
+pub fn linear_minmax(c: CubicBez) -> (f64, f64) {
     let co = CurveOffset::new(c);
-    let b01 = co.q.p0.to_vec2();
-    let b23 = co.q.p2.to_vec2();
-    let n0 = turn(b01).normalize();
-    let n1 = turn(b23).normalize();
     // probably want to renumber to 1, 2, 3, as 0 is not start point
     let t0 = 1. / 6.;
     let t1 = 0.5;
@@ -278,39 +275,29 @@ pub fn linear_minmax(c: CubicBez) -> CubicBez {
     let cb12 = cb1 + cb2;
     let z12 = z1 + z2;
     let det = ca01 * cb12 - ca12 * cb01;
+    let dot = ca01 * cb01 + ca12 * cb12;
+    web_sys::console::log_1(&format!("{:.6} {:.6}", det * 1e-9, dot * 1e-9).into());
     let a = (z01 * cb12 - z12 * cb01) / det;
     let b = (ca01 * z12 - ca12 * z01) / det;
-    CubicBez::new(
-        n0.to_point(),
-        (n0 + a * b01).to_point(),
-        (n1 + b * b23).to_point(),
-        n1.to_point(),
-    )
+    (a, b)
 }
 
 /// One point shape control, straight up
-pub fn one_point(c: CubicBez) -> CubicBez {
-    let q = c.deriv();
-    let b01 = q.p0.to_vec2();
-    let b23 = q.p2.to_vec2();
-    let n0 = turn(b01).normalize();
-    let n3 = turn(b23).normalize();
+pub fn one_point(c: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let b01 = co.q.p0.to_vec2();
+    let b23 = co.q.p2.to_vec2();
     let t1 = 0.5;
     let (w0, w1, w2, w3) = (0.125, 0.375, 0.375, 0.125);
-    let n1 = turn(q.eval(t1).to_vec2().normalize());
+    let n1 = turn(co.q.eval(t1).to_vec2().normalize());
     let ca = w1 * b01;
     let cb = w2 * b23;
-    let cc = (w0 + w1) * n0 + (w2 + w3) * n3;
+    let cc = (w0 + w1) * co.n0 + (w2 + w3) * co.n1;
     let z = n1 - cc;
     let det = ca.cross(cb);
     let a = z.cross(cb) / det;
     let b = ca.cross(z) / det;
-    CubicBez::new(
-        n0.to_point(),
-        (n0 + a * b01).to_point(),
-        (n3 + b * b23).to_point(),
-        n3.to_point(),
-    )
+    (a, b)
 }
 
 #[test]

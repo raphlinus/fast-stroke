@@ -1,4 +1,5 @@
-use kurbo::{Circle, CubicBez, Line, Point, Shape};
+use kurbo::{offset::CubicOffset, Circle, CubicBez, Line, Point, Shape};
+use perturb::CurveOffset;
 use xilem_web::{
     elements::{
         html::div,
@@ -61,30 +62,22 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 50.0;
+    let d = 100.0;
     //perturb::scaling_test(c, d);
-    let delta = perturb::one_point(c);
-    let c_one_point = CubicBez::new(
-        c.p0 + d * delta.p0.to_vec2(),
-        c.p1 + d * delta.p1.to_vec2(),
-        c.p2 + d * delta.p2.to_vec2(),
-        c.p3 + d * delta.p3.to_vec2(),
-    );
+    let co = CurveOffset::new(c);
+    let (a, b) = perturb::one_point(c);
+    let c_one_point = co.apply(a, b, d);
     let path_one_point = c_one_point.to_path(0.0);
     let err_one_point = perturb::plot(&perturb::error_by_rays(c, d, c_one_point));
+    let err_lin_one_point = perturb::plot_error(c, a, b);
 
-    let delta_minmax = perturb::linear_minmax(c);
-    let c_minmax = CubicBez::new(
-        c.p0 + d * delta_minmax.p0.to_vec2(),
-        c.p1 + d * delta_minmax.p1.to_vec2(),
-        c.p2 + d * delta_minmax.p2.to_vec2(),
-        c.p3 + d * delta_minmax.p3.to_vec2(),
-    );
+    let (a, b) = perturb::linear_minmax(c);
+    let c_minmax = co.apply(a, b, d);
     let path_minmax = c_minmax.to_path(0.0);
     let err_minmax = perturb::plot(&perturb::error_by_rays(c, d, c_minmax));
-    let err_lin_minmax = perturb::plot_error(c, delta_minmax);
-    //let spline_error = perturb::spline_error(c, delta_minmax);
-    let [y0, y1, y2] = perturb::est_err_bounds(c, delta_minmax);
+    let err_lin_minmax = perturb::plot_error(c, a, b);
+    //let spline_error = perturb::spline_error(c, a, b);
+    let [y0, y1, y2] = perturb::est_err_bounds(c, a, b);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -108,7 +101,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         // spline_error
         // .stroke(Color::MEDIUM_ORCHID, stroke_thin.clone())
         // .fill(NONE),
-        err_lin_minmax
+        err_lin_one_point
             .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
         err_one_point
