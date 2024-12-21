@@ -27,6 +27,19 @@ pub struct CurveOffset {
     n1xb23: f64,
 }
 
+const T1_FOR_OFFSET: f64 = 0.2;
+const OFFSET_TS: [f64; 3] = [T1_FOR_OFFSET, 0.5, 1. - T1_FOR_OFFSET];
+
+pub struct OffsetSolution {
+    // offset
+    d: f64,
+    // parameters
+    a: f64,
+    b: f64,
+    // t values on approximation corresponding to T1_FOR_OFFSET, 1/2 and 1 - T1_FOR_OFFSET
+    ts: [f64; 3],
+}
+
 impl CurveOffset {
     pub fn new(c: CubicBez) -> Self {
         let q = c.deriv();
@@ -158,6 +171,9 @@ pub fn plot_error(c: CubicBez, a: f64, b: f64) -> BezPath {
     result
 }
 
+/// Approximate error using cubic spline Hermite interpolation.
+///
+/// This works well for smooth errors, not so much when velocity varies.
 pub fn spline_error(c: CubicBez, a: f64, b: f64) -> BezPath {
     let mut result = BezPath::new();
     let co = CurveOffset::new(c);
@@ -263,7 +279,7 @@ pub fn scaling_test(c: CubicBez, d: f64) {
         }
         errs.push(max_err);
     }
-    web_sys::console::log_1(&format!("{:?}", errs).into());
+    web_sys::console::log_1(&format!("{errs:?}").into());
 }
 
 /// Linear approximation to error minmax
@@ -315,6 +331,7 @@ pub fn one_point(c: CubicBez) -> (f64, f64) {
     (a, b)
 }
 
+/// Logs refinement of t on normal ray. Just for exploring the convergence of that.
 pub fn refine(c: CubicBez, a: f64, b: f64, d: f64) {
     let co = CurveOffset::new(c);
     let t = 1. / 6.;
@@ -326,7 +343,10 @@ pub fn refine(c: CubicBez, a: f64, b: f64, d: f64) {
 }
 
 // Estimate error by refining t approximation, Euclidean distance to
-// approximation, and tangent discrepancy
+// approximation, and tangent discrepancy.
+//
+// This is very good but not a rigorous bound that could be enforced by
+// property testing. I would consider that future work.
 pub fn est_err_refined(c: CubicBez, a: f64, b: f64, d: f64) -> [f64; 3] {
     let co = CurveOffset::new(c);
     let ca = co.apply(a, b, d);
@@ -336,7 +356,7 @@ pub fn est_err_refined(c: CubicBez, a: f64, b: f64, d: f64) -> [f64; 3] {
         let p = c.eval(t) + d * turn(tan.normalize());
         let mut ta = t;
         for _ in 0..1 {
-            ta = co.newton_step_t(a, b, d, t, t);
+            ta = co.newton_step_t(a, b, d, t, ta);
         }
         let pa = ca.eval(ta);
         let dist_err = p.distance(pa);
@@ -345,6 +365,76 @@ pub fn est_err_refined(c: CubicBez, a: f64, b: f64, d: f64) -> [f64; 3] {
         let err = dist_err + 0.15 * angle_err;
         ERROR_SCALE * 500.0 * err / d
     })
+}
+
+impl OffsetSolution {
+    pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
+        let ts = OFFSET_TS;
+        Self { d, a, b, ts }
+    }
+
+    pub fn apply(&self, co: &CurveOffset) -> CubicBez {
+        co.apply(self.a, self.b, self.d)
+    }
+
+    /// Refine t values, using a Newton step to place them closer to the
+    /// normal ray from the generatrix.
+    ///
+    /// Return an error estimate. This is 3 values for the purpose of
+    /// visualization, but for production we probably only need 1. (That
+    /// said, it's not out of the question these can guide subdivision,
+    /// though my current thinking is to use the velocity denominator)
+    pub fn refine_ts(&mut self, co: &CurveOffset) -> [f64; 3] {
+        let ca = self.apply(co);
+        let mut errors = [0.0; 3];
+        for i in 0..3 {
+            let t = OFFSET_TS[i];
+            let tan = co.q.eval(t).to_vec2();
+            let p = co.c.eval(t) + self.d * turn(tan.normalize());
+            let ta = co.newton_step_t(self.a, self.b, self.d, t, self.ts[i]);
+            let pa = ca.eval(ta);
+            let dist_err = p.distance(pa);
+            let tana = ca.deriv().eval(ta).to_vec2();
+            let angle_err = tana.cross(tan).abs() / tan.hypot();
+            let err = dist_err + 0.15 * angle_err;
+            errors[i] = ERROR_SCALE * 500.0 * err / self.d;
+            self.ts[i] = ta;
+        }
+        errors
+    }
+
+    /// Refine a and b values, using a Newton step towards minmax.
+    pub fn refine_minmax(&mut self, co: &CurveOffset) {
+        let b01 = co.q.p0.to_vec2();
+        let b23 = co.q.p2.to_vec2();
+        let mut ca = [0.0; 3];
+        let mut cb = [0.0; 3];
+        let mut cc = [0.0; 3];
+        let c_approx = self.apply(co);
+        for i in 0..3 {
+            let t = OFFSET_TS[i];
+            let p = co.c.eval(t);
+            let tan = co.q.eval(t).to_vec2();
+            let n = turn(tan).normalize();
+            let ta = self.ts[i];
+            let mta = 1. - ta;
+            let pa = c_approx.eval(ta);
+            ca[i] = 3. * mta * mta * ta * b01.dot(n);
+            cb[i] = 3. * mta * ta * ta * b23.dot(n);
+            cc[i] = (pa - p).dot(n) - self.d;
+        }
+        let ca01 = ca[0] + ca[1];
+        let cb01 = cb[0] + cb[1];
+        let cc01 = cc[0] + cc[1];
+        let ca12 = ca[1] + ca[2];
+        let cb12 = cb[1] + cb[2];
+        let cc12 = cc[1] + cc[2];
+        let det = self.d * (ca01 * cb12 - ca12 * cb01);
+        let da = (cc01 * cb12 - cc12 * cb01) / det;
+        let db = (ca01 * cc12 - ca12 * cc01) / det;
+        self.a -= da;
+        self.b -= db;
+    }
 }
 
 #[test]

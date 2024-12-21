@@ -70,14 +70,13 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_one_point = c_one_point.to_path(0.0);
     let err_one_point = perturb::plot(&perturb::error_by_rays(c, d, c_one_point));
     let err_lin_one_point = perturb::plot_error(c, a, b);
-    let [y0, y1, y2] = perturb::est_err_refined(c, a, b, d);
+    let mut soln_one_point = perturb::OffsetSolution::from_a_b(a, b, d);
+    let [y0, y1, y2] = soln_one_point.refine_ts(&co);
 
-    let (a, b) = perturb::linear_minmax(c);
-    let c_minmax = co.apply(a, b, d);
-    let path_minmax = c_minmax.to_path(0.0);
-    let err_minmax = perturb::plot(&perturb::error_by_rays(c, d, c_minmax));
-    let err_lin_minmax = perturb::plot_error(c, a, b);
-    //let spline_error = perturb::spline_error(c, a, b);
+    soln_one_point.refine_minmax(&co);
+    let c_refined = soln_one_point.apply(&co);
+    let path_refined = c_refined.to_path(0.0);
+    let err_refined = perturb::plot(&perturb::error_by_rays(c, d, c_refined));
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -98,18 +97,15 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_one_point
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        // spline_error
-        // .stroke(Color::MEDIUM_ORCHID, stroke_thin.clone())
-        // .fill(NONE),
-        err_lin_one_point
+        path_refined
             .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
         err_one_point
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        // err_minmax
-        // .stroke(Color::YELLOW, stroke_thin.clone())
-        // .fill(NONE),
+        err_refined
+            .stroke(Color::LIME, stroke_thin.clone())
+            .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
