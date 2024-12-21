@@ -73,8 +73,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let mut soln_one_point = perturb::OffsetSolution::from_a_b(a, b, d);
     let [y0, y1, y2] = soln_one_point.refine_ts(&co);
 
-    soln_one_point.refine_minmax(&co);
-    let c_refined = soln_one_point.apply(&co);
+    let (a, b) = perturb::linear_minmax(c);
+    let mut soln_minmax = perturb::OffsetSolution::from_a_b(a, b, d);
+    _ = soln_minmax.refine_ts(&co);
+    soln_minmax.refine_minmax(&co);
+    let c_refined = soln_minmax.apply(&co);
     let path_refined = c_refined.to_path(0.0);
     let err_refined = perturb::plot(&perturb::error_by_rays(c, d, c_refined));
 
