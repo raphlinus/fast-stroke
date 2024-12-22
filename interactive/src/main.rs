@@ -103,10 +103,15 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_offset = c_offset.to_path(0.0);
     let err_offset = perturb::plot(&perturb::error_by_rays(c, d, c_offset));
 
-    let (a2, b2) = perturb::one_point(c);
+    let (a2, b2) = perturb::one_point_at(c, d, 0.5);
     let c_one_point = co.apply(a2, b2, d);
     let path_one_point = c_one_point.to_path(0.0);
     let err_one_point = perturb::plot(&perturb::error_by_rays(c, d, c_one_point));
+
+    let t = perturb::brute_one_point(c, d, 0.5);
+    let (a3, b3) = perturb::one_point_at(c, d, t);
+    let c_one_point2 = co.apply(a3, b3, d);
+    let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -135,6 +140,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .fill(NONE),
         err_one_point
             .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
+        err_one_point2
+            .stroke(Color::PURPLE, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)

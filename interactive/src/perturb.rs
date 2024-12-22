@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 100.0;
+const ERROR_SCALE: f64 = 20.0;
 
 pub struct CurveOffset {
     c: CubicBez,
@@ -329,6 +329,66 @@ pub fn one_point(c: CubicBez) -> (f64, f64) {
     let a = z.cross(cb) / det;
     let b = ca.cross(z) / det;
     (a, b)
+}
+
+/// One point shape control, adjustable ta
+pub fn one_point_at(c: CubicBez, d: f64, ta: f64) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let b01 = co.q.p0.to_vec2();
+    let b23 = co.q.p2.to_vec2();
+    let n1 = turn(co.q.eval(0.5).to_vec2().normalize());
+    let dp = c.eval(0.5) + d * n1 - c.eval(ta);
+    let mt = 1.0 - ta;
+    let w0 = mt * mt * mt;
+    let w1 = 3.0 * mt * mt * ta;
+    let w2 = 3.0 * mt * ta * ta;
+    let w3 = ta * ta * ta;
+    let ca = w1 * b01;
+    let cb = w2 * b23;
+    let cc = (w0 + w1) * co.n0 + (w2 + w3) * co.n1;
+    let z = dp - d * cc;
+    let det = d * ca.cross(cb);
+    let a = z.cross(cb) / det;
+    let b = ca.cross(z) / det;
+    (a, b)
+}
+
+// Given a t value, do a Newton step to minimize angle error
+// at generatrix t = 0.5
+pub fn refine_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
+    let co = CurveOffset::new(c);
+    const DT: f64 = 1e-6;
+    let errs = [-DT, DT].map(|dt| {
+        let (a, b) = one_point_at(c, d, t + dt);
+        let approx = co.apply(a, b, d);
+        let tana = approx.deriv().eval(t + dt).to_vec2();
+        let tan = co.q.eval(t).to_vec2();
+        let angle_err = tana.cross(tan).abs() / tan.hypot();
+        angle_err
+    });
+    let new_t = t - (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
+    web_sys::console::log_1(&format!("{errs:?} {new_t}").into());
+    new_t
+}
+
+pub fn brute_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
+    let co = CurveOffset::new(c);
+    let mut best_err = 1e9;
+    let mut best_t = 0.5;
+    const DT: f64 = 1e-4;
+    for i in -1000..=1000 {
+        let dt = DT * i as f64;
+        let (a, b) = one_point_at(c, d, t + dt);
+        let mut soln = OffsetSolution::from_a_b(a, b, d);
+        let [y0, y1, y2] = soln.refine_ts(&co);
+        let y = y0.max(y1).max(y2);
+        if y < best_err {
+            best_err = y;
+            best_t = t + dt;
+        }
+    }
+    web_sys::console::log_1(&format!("{best_t}").into());
+    best_t
 }
 
 pub fn linear_center(c: CubicBez) -> (f64, f64) {
