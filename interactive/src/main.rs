@@ -65,21 +65,33 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
-    let (a, b) = perturb::one_point(c);
-    let c_one_point = co.apply(a, b, d);
-    let path_one_point = c_one_point.to_path(0.0);
-    let err_one_point = perturb::plot(&perturb::error_by_rays(c, d, c_one_point));
-    let err_lin_one_point = perturb::plot_error(c, a, b);
-    let mut soln_one_point = perturb::OffsetSolution::from_a_b(a, b, d);
-    let [y0, y1, y2] = soln_one_point.refine_ts(&co);
-
+    // Always try minmax solution
     let (a, b) = perturb::linear_minmax(c);
     let mut soln_minmax = perturb::OffsetSolution::from_a_b(a, b, d);
     _ = soln_minmax.refine_ts(&co);
     soln_minmax.refine_minmax(&co);
-    let c_refined = soln_minmax.apply(&co);
-    let path_refined = c_refined.to_path(0.0);
-    let err_refined = perturb::plot(&perturb::error_by_rays(c, d, c_refined));
+    let [y1_0, y1_1, y1_2] = soln_minmax.refine_ts(&co);
+    let err_minmax = y1_0.max(y1_1).max(y1_2);
+
+    // try linear_center; can skip in S case
+    let (a1, b1) = perturb::linear_center(c);
+    let mut soln_center = perturb::OffsetSolution::from_a_b(a1, b1, d);
+    let [y2_0, y2_1, y2_2] = soln_center.refine_ts(&co);
+    let err_center = y2_0.max(y2_1).max(y2_2);
+    let best_soln = if err_minmax < err_center {
+        &soln_minmax
+    } else {
+        &soln_center
+    };
+    let [y0, y1, y2] = if err_minmax < err_center {
+        [y1_0, y1_1, y1_2]
+    } else {
+        [y2_0, y2_1, y2_2]
+    };
+
+    let c_offset = best_soln.apply(&co);
+    let path_offset = c_offset.to_path(0.0);
+    let err_offset = perturb::plot(&perturb::error_by_rays(c, d, c_offset));
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -97,17 +109,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         // path_minmax
         // .stroke(Color::YELLOW, stroke_thin.clone())
         // .fill(NONE),
-        path_one_point
-            .stroke(Color::ORANGE, stroke_thin.clone())
+        path_offset
+            .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        path_refined
-            .stroke(Color::LIME, stroke_thin.clone())
-            .fill(NONE),
-        err_one_point
-            .stroke(Color::ORANGE, stroke_thin.clone())
-            .fill(NONE),
-        err_refined
-            .stroke(Color::LIME, stroke_thin.clone())
+        err_offset
+            .stroke(Color::RED, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)

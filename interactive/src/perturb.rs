@@ -331,6 +331,24 @@ pub fn one_point(c: CubicBez) -> (f64, f64) {
     (a, b)
 }
 
+pub fn linear_center(c: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    // probably want to renumber to 1, 2, 3, as 0 is not start point
+    let t0 = 1. / 6.;
+    let t1 = 0.5;
+    let t2 = 1.0 - t0;
+    let (ca0, cb0, cc0) = co.coefs_at(t0);
+    let (ca1, cb1, cc1) = co.coefs_at(t1);
+    let (ca2, cb2, cc2) = co.coefs_at(t2);
+    let z0 = -co.q.eval(t0).to_vec2().hypot() - cc0;
+    let z1 = -co.q.eval(t1).to_vec2().hypot() - cc1;
+    let z2 = -co.q.eval(t2).to_vec2().hypot() - cc2;
+    let denom = ca0 + 2.0 * ca1 + ca2 - cb0 - 2. * cb1 - cb2;
+    let a = (z0 + 2.0 * z1 + z2) / denom;
+    let b = -a;
+    (a, b)
+}
+
 /// Logs refinement of t on normal ray. Just for exploring the convergence of that.
 pub fn refine(c: CubicBez, a: f64, b: f64, d: f64) {
     let co = CurveOffset::new(c);
