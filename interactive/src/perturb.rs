@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 10.0;
+const ERROR_SCALE: f64 = 100.0;
 
 pub struct CurveOffset {
     c: CubicBez,
