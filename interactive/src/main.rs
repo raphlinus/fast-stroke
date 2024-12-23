@@ -10,6 +10,7 @@ use xilem_web::{
     App, DomView, PointerMsg,
 };
 
+mod offset;
 mod perturb;
 
 #[derive(Default)]
@@ -62,7 +63,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 10.0;
+    let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     // Always try minmax solution
@@ -90,6 +91,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         [y2_0, y2_1, y2_2]
     };
 
+    /*
     let (a1, b1) = perturb::one_point(c);
     let mut soln_one_point = perturb::OffsetSolution::from_a_b(a1, b1, d);
     let [y3_0, y3_1, y3_2] = soln_one_point.refine_ts(&co);
@@ -112,6 +114,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let (a3, b3) = perturb::one_point_at(c, d, t);
     let c_one_point2 = co.apply(a3, b3, d);
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
+    */
+
+    let tolerance = 0.1;
+    let path_offset = offset::offset_cubic(c, d, tolerance);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -131,18 +137,6 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         // .fill(NONE),
         path_offset
             .stroke(Color::YELLOW, stroke_thin.clone())
-            .fill(NONE),
-        err_offset
-            .stroke(Color::RED, stroke_thin.clone())
-            .fill(NONE),
-        path_one_point
-            .stroke(Color::ORANGE, stroke_thin.clone())
-            .fill(NONE),
-        err_one_point
-            .stroke(Color::ORANGE, stroke_thin.clone())
-            .fill(NONE),
-        err_one_point2
-            .stroke(Color::PURPLE, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
