@@ -1,6 +1,8 @@
 //! An implementation of curve offset.
 
-use kurbo::{common::solve_itp, BezPath, CubicBez, ParamCurve, ParamCurveDeriv, QuadBez, Vec2};
+use kurbo::{
+    common::solve_itp, BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2,
+};
 
 // Copyright 2022 the Kurbo Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
@@ -69,14 +71,10 @@ const OFFSET_TS: [f64; 3] = [T1_FOR_OFFSET, 0.5, 1. - T1_FOR_OFFSET];
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let mut result = BezPath::new();
     let co = CubicOffset::new(c, d, tolerance);
-    // TODO: cusp analysis to avoid divide by 0 here.
-    let utan0 = co.q.p0.to_vec2().normalize();
-    let utan1 = co.q.p2.to_vec2().normalize();
+    // TODO: cusp analysis to avoid divide by 0 in following math.
+    let (cusp0, utan0) = co.cusp_and_utan(co.q.p0, co.c0);
+    let (cusp1, utan1) = co.cusp_and_utan(co.q.p2, co.c0 + co.c1 + co.c2);
     result.move_to(c.p0 + d * turn(utan0));
-    // Note: these can be optimized!
-    // Basically we only need to take hypot once
-    let cusp0 = co.cusp_sign(0.0);
-    let cusp1 = co.cusp_sign(1.0);
     let rec = OffsetRec {
         t0: 0.0,
         t1: 1.0,
@@ -92,11 +90,6 @@ pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
 
 impl CubicOffset {
     /// Create a new curve from Bézier segment and offset.
-    ///
-    /// This method should only be used if the Bézier is smooth. Use
-    /// [`new_regularized`] instead to deal with a wider range of inputs.
-    ///
-    /// [`new_regularized`]: Self::new_regularized
     fn new(c: CubicBez, d: f64, tolerance: f64) -> Self {
         let q = c.deriv();
         let d0 = q.p0.to_vec2();
@@ -124,6 +117,20 @@ impl CubicOffset {
         ((self.c2 * t + self.c1) * t + self.c0) / (ds2 * ds2.sqrt()) + 1.0
     }
 
+    /// Compute cusp and unit tangent of endpoint.
+    ///
+    /// Equivalent to computing both separately, but more optimized.
+    ///
+    /// The y parameter should be c0 for the start point, and c0 + c1 + c2
+    /// for the end point; it's just evaluating the polynomial at t=0 and
+    /// t=1.
+    fn cusp_and_utan(&self, tan: Point, y: f64) -> (f64, Vec2) {
+        let rsqrt = 1.0 / tan.to_vec2().hypot2().sqrt();
+        let cusp = y * (rsqrt * rsqrt * rsqrt) + 1.0;
+        let utan = rsqrt * tan.to_vec2();
+        (cusp, utan)
+    }
+
     fn offset_rec(&self, rec: &OffsetRec, result: &mut BezPath) {
         if rec.cusp0 * rec.cusp1 < 0.0 {
             let a = rec.t0;
@@ -148,17 +155,18 @@ impl CubicOffset {
         let math = OffsetMath::new(self, rec);
         let (a, b) = math.one_point(rec);
         let mut ts = OFFSET_TS;
-        let err = math.est_error(self, rec, a, b, &mut ts);
+        let c_approx = self.apply(rec, a, b);
+        let err = math.est_error(self, rec, c_approx, &mut ts);
         web_sys::console::log_1(
             &format!("{}..{} ab {a:.6} {b:.6}, err {err}", rec.t0, rec.t1).into(),
         );
         if rec.depth < MAX_DEPTH && err > self.tolerance {
             let t = rec.t0 + 0.5 * (rec.t1 - rec.t0);
-            let utan_t = self.q.eval(t).to_vec2().normalize();
+            let utan_t = math.utans[1];
             let cusp = self.cusp_sign(t);
             self.subdivide(rec, result, t, utan_t, cusp, cusp);
         } else {
-            self.output(rec, a, b, result);
+            result.curve_to(c_approx.p1, c_approx.p2, c_approx.p3);
         }
     }
 
@@ -205,11 +213,6 @@ impl CubicOffset {
         let p3 = self.c.eval(rec.t1) + self.d * turn(rec.utan1);
         let p2 = p3 - s * self.q.eval(rec.t1).to_vec2() + b * self.d * rec.utan1;
         CubicBez::new(p0, p1, p2, p3)
-    }
-
-    fn output(&self, rec: &OffsetRec, a: f64, b: f64, result: &mut BezPath) {
-        let c = self.apply(rec, a, b);
-        result.curve_to(c.p1, c.p2, c.p3);
     }
 }
 
@@ -261,15 +264,24 @@ impl OffsetMath {
         (a, b)
     }
 
+    /// Estimate the error of the curve approximation.
+    ///
+    /// The error estimate is good but not guaranteed to be conservative in
+    /// all cases. Experiment suggests underestimate can happen when there
+    /// is large curvature variation; perhaps a fudge factor based on that
+    /// would help.
+    ///
+    /// Also do a Newton step to refine the `ts` values, to place them in
+    /// the normal ray of the generatrix. The `ts` values are the parameter
+    /// values on the approximation corresponding to `OFFSET_TS` on the
+    /// generatrix.
     fn est_error(
         &self,
         co: &CubicOffset,
         rec: &OffsetRec,
-        a: f64,
-        b: f64,
+        c_approx: CubicBez,
         ts: &mut [f64; 3],
     ) -> f64 {
-        let c_approx = co.apply(rec, a, b);
         let qa = c_approx.deriv();
         let mut max_err = 0.0;
         for i in 0..3 {

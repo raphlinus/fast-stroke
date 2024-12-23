@@ -63,7 +63,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 100.0;
+    let d = 10.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     // Always try minmax solution
