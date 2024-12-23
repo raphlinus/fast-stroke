@@ -40,6 +40,8 @@ struct OffsetMath {
     // This is the derivative of the subsegment. We might
     // get rid of it in favor of sampling the original `q`.
     q: QuadBez,
+    // Unit tangents for `OFFSET_TS`
+    utans: [Vec2; 3],
     b01xb12: f64,
     b01xb23: f64,
     b12xb23: f64,
@@ -54,6 +56,15 @@ struct OffsetMath {
 // We never let cusp values haven an absolute value smaller than
 // this. When a cusp is found, determine its sign and use this value.
 const CUSP_EPSILON: f64 = 1e-12;
+
+/// Maximum recursion depth
+///
+/// Perhaps should be configurable.
+const MAX_DEPTH: usize = 4;
+
+// t values for minmax and error estimation
+const T1_FOR_OFFSET: f64 = 0.2;
+const OFFSET_TS: [f64; 3] = [T1_FOR_OFFSET, 0.5, 1. - T1_FOR_OFFSET];
 
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let mut result = BezPath::new();
@@ -134,17 +145,21 @@ impl CubicOffset {
             self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
             return;
         }
-        if rec.depth < 1 {
+        let math = OffsetMath::new(self, rec);
+        let (a, b) = math.one_point(rec);
+        let mut ts = OFFSET_TS;
+        let err = math.est_error(self, rec, a, b, &mut ts);
+        web_sys::console::log_1(
+            &format!("{}..{} ab {a:.6} {b:.6}, err {err}", rec.t0, rec.t1).into(),
+        );
+        if rec.depth < MAX_DEPTH && err > self.tolerance {
             let t = rec.t0 + 0.5 * (rec.t1 - rec.t0);
             let utan_t = self.q.eval(t).to_vec2().normalize();
             let cusp = self.cusp_sign(t);
             self.subdivide(rec, result, t, utan_t, cusp, cusp);
-            return;
+        } else {
+            self.output(rec, a, b, result);
         }
-        let math = OffsetMath::new(self, rec);
-        let (a, b) = math.one_point(rec);
-        web_sys::console::log_1(&format!("ab {a:.6} {b:.6}").into());
-        self.output(rec, a, b, result);
     }
 
     fn subdivide(
@@ -178,7 +193,10 @@ impl CubicOffset {
         self.offset_rec(&rec1, result);
     }
 
-    fn output(&self, rec: &OffsetRec, a: f64, b: f64, result: &mut BezPath) {
+    fn apply(&self, rec: &OffsetRec, a: f64, b: f64) -> CubicBez {
+        // Discussion question: should this clamp the derivatives to
+        // point in the right direction?
+
         // wondering if p0 and p3 should be in rec
         // Scale factor from derivatives to displacements
         let s = (1. / 3.) * (rec.t1 - rec.t0);
@@ -186,13 +204,19 @@ impl CubicOffset {
         let p1 = p0 + s * self.q.eval(rec.t0).to_vec2() + a * self.d * rec.utan0;
         let p3 = self.c.eval(rec.t1) + self.d * turn(rec.utan1);
         let p2 = p3 - s * self.q.eval(rec.t1).to_vec2() + b * self.d * rec.utan1;
-        result.curve_to(p1, p2, p3);
+        CubicBez::new(p0, p1, p2, p3)
+    }
+
+    fn output(&self, rec: &OffsetRec, a: f64, b: f64, result: &mut BezPath) {
+        let c = self.apply(rec, a, b);
+        result.curve_to(c.p1, c.p2, c.p3);
     }
 }
 
 impl OffsetMath {
     fn new(co: &CubicOffset, rec: &OffsetRec) -> Self {
         let q = co.q.subsegment(rec.t0..rec.t1);
+        let utans = OFFSET_TS.map(|t| q.eval(t).to_vec2().normalize());
         let b01 = q.p0.to_vec2();
         let b12 = q.p1.to_vec2();
         let b23 = q.p2.to_vec2();
@@ -213,6 +237,7 @@ impl OffsetMath {
         let n1xb23 = n1.cross(b23);
         Self {
             q,
+            utans,
             b01xb12,
             b01xb23,
             b12xb23,
@@ -227,19 +252,50 @@ impl OffsetMath {
 
     // Return (a, b) parameters in terms of unit tangents
     fn one_point(&self, rec: &OffsetRec) -> (f64, f64) {
-        let ca = 0.375 * rec.utan0;
-        let cb = 0.375 * rec.utan1;
-        let cc = turn(0.5 * (rec.utan0 + rec.utan1));
-        // This should be precomputed, probably in rec
-        let n1 = turn(self.q.eval(0.5).to_vec2().normalize());
-        let z = n1 - cc;
-        let det = ca.cross(cb);
-        let a = z.cross(cb) / det;
-        let b = ca.cross(z) / det;
+        let ca = rec.utan0;
+        let cb = rec.utan1;
+        let z = self.utans[1] - 0.5 * (ca + cb);
+        let idet = (8.0 / 3.0) / ca.cross(cb);
+        let a = -z.dot(cb) * idet;
+        let b = z.dot(ca) * idet;
         (a, b)
+    }
+
+    fn est_error(
+        &self,
+        co: &CubicOffset,
+        rec: &OffsetRec,
+        a: f64,
+        b: f64,
+        ts: &mut [f64; 3],
+    ) -> f64 {
+        let c_approx = co.apply(rec, a, b);
+        let qa = c_approx.deriv();
+        let mut max_err = 0.0;
+        for i in 0..3 {
+            let t = OFFSET_TS[i];
+            let utan = self.utans[i];
+            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
+            let p = co.c.eval(t_orig) + co.d * turn(utan);
+            let mut ta = ts[i];
+            // Newton step to place c_approx(ta) in normal ray
+            let pa = c_approx.eval(ta);
+            let tana = qa.eval(ta).to_vec2();
+            ta -= utan.dot(pa - p) / utan.dot(tana);
+            let dist_err = p.distance(c_approx.eval(ta));
+            let angle_err = qa.eval(ta).to_vec2().cross(utan);
+            let err = dist_err + 0.15 * angle_err.abs();
+            max_err = err.max(max_err);
+            ts[i] = ta;
+        }
+        max_err
     }
 }
 
+/// Rotate 90 degrees (clockwise in y-down).
+///
+/// a.dot(b) = a.cross(turn(b))
+/// a.cross(y) = turn(a).dot(b)
 fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
