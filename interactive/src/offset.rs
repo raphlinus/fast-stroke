@@ -75,22 +75,19 @@ impl CubicOffset {
     /// Create a new curve from Bézier segment and offset.
     fn new(c: CubicBez, d: f64, tolerance: f64) -> Self {
         let q = c.deriv();
-        let d0 = q.p0.to_vec2();
-        let d1 = 2.0 * (q.p1 - q.p0);
-        let d2 = (q.p2 - q.p1) - (q.p1 - q.p0);
+        let d2 = 2.0 * d;
+        let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
+        let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
+        let p2xp1 = q.p2.to_vec2().cross(q.p1.to_vec2());
         CubicOffset {
             c,
             q,
             d,
-            c0: d * d1.cross(d0),
-            c1: d * 2.0 * d2.cross(d0),
-            c2: d * d2.cross(d1),
+            c0: d2 * p1xp0,
+            c1: d2 * (p2xp0 - 2.0 * p1xp0),
+            c2: d2 * (p2xp1 - p2xp0 + p1xp0),
             tolerance,
         }
-        // possible optimizations:
-        // c0 = 2 p1 x p0
-        // c1 = 2 (p2 x p0 - 2 p1 x p0)
-        // c2 = 2 (p2 - p1) x (p1 - p0) = 2 (p2 x p1 - p2 x p0 + p1 x p0)
     }
 
     // Compute a function which has a zero-crossing at cusps, and is
@@ -357,7 +354,7 @@ impl CubicOffset {
             let ta = ts[i];
             let mta = 1. - ta;
             let pa = c_approx.eval(ta);
-            ca[i] = 3. * mta * mta * ta * rec.utan0.dot(n);
+            ca[i] = 3. * mta * ta * mta * rec.utan0.dot(n);
             cb[i] = 3. * mta * ta * ta * rec.utan1.dot(n);
             cc[i] = (pa - p).dot(n) - self.d;
         }

@@ -1,4 +1,4 @@
-use kurbo::{offset::CubicOffset, Circle, CubicBez, Line, Point, Shape};
+use kurbo::{BezPath, Circle, CubicBez, Line, PathEl, Point, Shape};
 use perturb::CurveOffset;
 use xilem_web::{
     elements::{
@@ -116,12 +116,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
     */
 
-    let (a, b) = perturb::linear_minmax(c);
-    let soln = perturb::OffsetSolution::from_a_b(a, b, d);
-    let c_minmax = soln.apply(&co);
-    let path_minmax = c_minmax.to_path(0.0);
-
-    let tolerance = 0.1;
+    let tolerance = 2.0;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
     const NONE: Color = Color::TRANSPARENT;
@@ -137,9 +132,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
-        path_minmax
-            .stroke(Color::MAGENTA, stroke_thin.clone())
-            .fill(NONE),
+        subdiv_pts(&path_offset),
         path_offset
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
@@ -157,6 +150,18 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     .attr("width", 900)
     .attr("height", 600);
     div((svg_el,)).attr("id", "beztoy-container-inner")
+}
+
+fn subdiv_pts(path: &BezPath) -> impl DomView<AppState> {
+    let mut circles = vec![];
+    for el in path.elements() {
+        match el {
+            PathEl::MoveTo(p) => circles.push(Circle::new(*p, 5.0)),
+            PathEl::CurveTo(_, _, p3) => circles.push(Circle::new(*p3, 5.0)),
+            _ => (),
+        }
+    }
+    g(circles).class("subdiv")
 }
 
 pub fn main() {
