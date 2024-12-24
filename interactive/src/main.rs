@@ -63,7 +63,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 10.0;
+    let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     // Always try minmax solution
@@ -116,6 +116,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
     */
 
+    let (a, b) = perturb::linear_minmax(c);
+    let soln = perturb::OffsetSolution::from_a_b(a, b, d);
+    let c_minmax = soln.apply(&co);
+    let path_minmax = c_minmax.to_path(0.0);
+
     let tolerance = 0.1;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
@@ -132,9 +137,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
-        // path_minmax
-        // .stroke(Color::YELLOW, stroke_thin.clone())
-        // .fill(NONE),
+        path_minmax
+            .stroke(Color::MAGENTA, stroke_thin.clone())
+            .fill(NONE),
         path_offset
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),

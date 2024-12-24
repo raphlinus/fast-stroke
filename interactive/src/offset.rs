@@ -38,23 +38,6 @@ struct OffsetRec {
     depth: usize,
 }
 
-struct OffsetMath {
-    // This is the derivative of the subsegment. We might
-    // get rid of it in favor of sampling the original `q`.
-    q: QuadBez,
-    // Unit tangents for `OFFSET_TS`
-    utans: [Vec2; 3],
-    b01xb12: f64,
-    b01xb23: f64,
-    b12xb23: f64,
-    n0xb01: f64,
-    n1xb01: f64,
-    n0xb12: f64,
-    n1xb12: f64,
-    n0xb23: f64,
-    n1xb23: f64,
-}
-
 // We never let cusp values haven an absolute value smaller than
 // this. When a cusp is found, determine its sign and use this value.
 const CUSP_EPSILON: f64 = 1e-12;
@@ -65,7 +48,7 @@ const CUSP_EPSILON: f64 = 1e-12;
 const MAX_DEPTH: usize = 4;
 
 // t values for minmax and error estimation
-const T1_FOR_OFFSET: f64 = 0.2;
+const T1_FOR_OFFSET: f64 = 1. / 6.;
 const OFFSET_TS: [f64; 3] = [T1_FOR_OFFSET, 0.5, 1. - T1_FOR_OFFSET];
 
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
@@ -125,7 +108,7 @@ impl CubicOffset {
     /// for the end point; it's just evaluating the polynomial at t=0 and
     /// t=1.
     fn cusp_and_utan(&self, tan: Point, y: f64) -> (f64, Vec2) {
-        let rsqrt = 1.0 / tan.to_vec2().hypot2().sqrt();
+        let rsqrt = 1.0 / tan.to_vec2().hypot();
         let cusp = y * (rsqrt * rsqrt * rsqrt) + 1.0;
         let utan = rsqrt * tan.to_vec2();
         (cusp, utan)
@@ -152,17 +135,27 @@ impl CubicOffset {
             self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
             return;
         }
-        let math = OffsetMath::new(self, rec);
-        let (a, b) = math.one_point(rec);
+        let utans = self.utans(rec);
+        let (a, b) = self.one_point(rec, &utans);
         let mut ts = OFFSET_TS;
-        let c_approx = self.apply(rec, a, b);
-        let err = math.est_error(self, rec, c_approx, &mut ts);
+        let mut c_approx = self.apply(rec, a, b);
+        let mut err = self.est_error(rec, &utans, c_approx, &mut ts);
+        // early out if err is in tolerance?
+        let (a_minmax, b_minmax) = self.linear_minmax(rec);
+        let c_minmax = self.apply(rec, a_minmax, b_minmax);
+        ts = OFFSET_TS;
+        let err_minmax = self.est_error(rec, &utans, c_minmax, &mut ts);
+        if err_minmax < err {
+            err = err_minmax;
+            c_approx = c_minmax;
+        }
+
         web_sys::console::log_1(
             &format!("{}..{} ab {a:.6} {b:.6}, err {err}", rec.t0, rec.t1).into(),
         );
         if rec.depth < MAX_DEPTH && err > self.tolerance {
             let t = rec.t0 + 0.5 * (rec.t1 - rec.t0);
-            let utan_t = math.utans[1];
+            let utan_t = utans[1];
             let cusp = self.cusp_sign(t);
             self.subdivide(rec, result, t, utan_t, cusp, cusp);
         } else {
@@ -214,50 +207,21 @@ impl CubicOffset {
         let p2 = p3 - s * self.q.eval(rec.t1).to_vec2() + b * self.d * rec.utan1;
         CubicBez::new(p0, p1, p2, p3)
     }
-}
 
-impl OffsetMath {
-    fn new(co: &CubicOffset, rec: &OffsetRec) -> Self {
-        let q = co.q.subsegment(rec.t0..rec.t1);
-        let utans = OFFSET_TS.map(|t| q.eval(t).to_vec2().normalize());
-        let b01 = q.p0.to_vec2();
-        let b12 = q.p1.to_vec2();
-        let b23 = q.p2.to_vec2();
-        // TODO: these should be reformulated in terms
-        // of unit tangent vectors.
-        let b01xb12 = b01.cross(b12);
-        let b01xb23 = b01.cross(b23);
-        let b12xb23 = b12.cross(b23);
-        let n0 = turn(rec.utan0);
-        let n1 = turn(rec.utan1);
-        // These are actually dot products, which might be
-        // faster with SIMD. TODO: get sign right.
-        let n0xb01 = n0.cross(b01);
-        let n1xb01 = n1.cross(b01);
-        let n0xb12 = n0.cross(b12);
-        let n1xb12 = n1.cross(b12);
-        let n0xb23 = n0.cross(b23);
-        let n1xb23 = n1.cross(b23);
-        Self {
-            q,
-            utans,
-            b01xb12,
-            b01xb23,
-            b12xb23,
-            n0xb01,
-            n1xb01,
-            n0xb12,
-            n1xb12,
-            n0xb23,
-            n1xb23,
-        }
+    fn utans(&self, rec: &OffsetRec) -> [Vec2; 3] {
+        let q = self.q.subsegment(rec.t0..rec.t1);
+        OFFSET_TS.map(|t| q.eval(t).to_vec2().normalize())
     }
 
-    // Return (a, b) parameters in terms of unit tangents
-    fn one_point(&self, rec: &OffsetRec) -> (f64, f64) {
+    /// Approximate curve using one-point shape control.
+    ///
+    /// This solves (a, b) parameters (in terms of unit tangents) to place
+    /// the t = 0.5 point on the approximation at the offset normal to
+    /// t = 0.5 on the generatrix.
+    fn one_point(&self, rec: &OffsetRec, utans: &[Vec2; 3]) -> (f64, f64) {
         let ca = rec.utan0;
         let cb = rec.utan1;
-        let z = self.utans[1] - 0.5 * (ca + cb);
+        let z = utans[1] - 0.5 * (ca + cb);
         let idet = (8.0 / 3.0) / ca.cross(cb);
         let a = -z.dot(cb) * idet;
         let b = z.dot(ca) * idet;
@@ -277,8 +241,8 @@ impl OffsetMath {
     /// generatrix.
     fn est_error(
         &self,
-        co: &CubicOffset,
         rec: &OffsetRec,
+        utans: &[Vec2; 3],
         c_approx: CubicBez,
         ts: &mut [f64; 3],
     ) -> f64 {
@@ -286,9 +250,9 @@ impl OffsetMath {
         let mut max_err = 0.0;
         for i in 0..3 {
             let t = OFFSET_TS[i];
-            let utan = self.utans[i];
+            let utan = utans[i];
             let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
-            let p = co.c.eval(t_orig) + co.d * turn(utan);
+            let p = self.c.eval(t_orig) + self.d * turn(utan);
             let mut ta = ts[i];
             // Newton step to place c_approx(ta) in normal ray
             let pa = c_approx.eval(ta);
@@ -301,6 +265,58 @@ impl OffsetMath {
             ts[i] = ta;
         }
         max_err
+    }
+
+    /// Approximate offset curve using linear minmax.
+    fn linear_minmax(&self, rec: &OffsetRec) -> (f64, f64) {
+        // TODO: maybe take q as arg?
+        let q = self.q.subsegment(rec.t0..rec.t1);
+        let dt = rec.t1 - rec.t0;
+        let b01 = dt * q.p0.to_vec2();
+        let b12 = dt * q.p1.to_vec2();
+        let b23 = dt * q.p2.to_vec2();
+        // TODO: these should be reformulated in terms
+        // of unit tangent vectors.
+        let b01xb12 = b01.cross(b12);
+        let b01xb23 = b01.cross(b23);
+        let b12xb23 = b12.cross(b23);
+        // These are actually dot products, which might be
+        // faster with SIMD. TODO: get sign right.
+        let n0xb01 = -rec.utan0.dot(b01);
+        let n1xb01 = -rec.utan1.dot(b01);
+        let n0xb12 = -rec.utan0.dot(b12);
+        let n1xb12 = -rec.utan1.dot(b12);
+        let n0xb23 = -rec.utan0.dot(b23);
+        let n1xb23 = -rec.utan1.dot(b23);
+        let coefs_at = |t: f64| {
+            let mt = 1.0 - t;
+            let ca = 6.0 * mt.powi(3) * t * t * b01xb12 + 3.0 * mt * mt * t.powi(3) * b01xb23;
+            let cb = -3.0 * mt.powi(3) * t * t * b01xb23 + -6.0 * mt * mt * t.powi(3) * b12xb23;
+            let cc = mt.powi(4) * (mt + 3.0 * t) * n0xb01
+                + mt * mt * t * t * (3.0 * mt + t) * n1xb01
+                + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0xb12
+                + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * n1xb12
+                + mt * mt * t * t * (mt + 3.0 * t) * n0xb23
+                + t.powi(4) * (3.0 * mt + t) * n1xb23;
+            (ca, cb, cc)
+        };
+        let [t0, t1, t2] = OFFSET_TS;
+        let (ca0, cb0, cc0) = coefs_at(t0);
+        let (ca1, cb1, cc1) = coefs_at(t1);
+        let (ca2, cb2, cc2) = coefs_at(t2);
+        let z0 = -dt * q.eval(t0).to_vec2().hypot() - cc0;
+        let z1 = -dt * q.eval(t1).to_vec2().hypot() - cc1;
+        let z2 = -dt * q.eval(t2).to_vec2().hypot() - cc2;
+        let ca01 = ca0 + ca1;
+        let cb01 = cb0 + cb1;
+        let z01 = z0 + z1;
+        let ca12 = ca1 + ca2;
+        let cb12 = cb1 + cb2;
+        let z12 = z1 + z2;
+        let det = ca01 * cb12 - ca12 * cb01;
+        let a = (z01 * cb12 - z12 * cb01) / det;
+        let b = (ca01 * z12 - ca12 * z01) / det;
+        (a * b01.hypot(), b * b23.hypot())
     }
 }
 
