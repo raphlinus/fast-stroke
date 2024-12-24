@@ -45,7 +45,7 @@ const CUSP_EPSILON: f64 = 1e-12;
 /// Maximum recursion depth
 ///
 /// Perhaps should be configurable.
-const MAX_DEPTH: usize = 4;
+const MAX_DEPTH: usize = 8;
 
 // t values for minmax and error estimation
 const T1_FOR_OFFSET: f64 = 1. / 6.;
@@ -139,7 +139,8 @@ impl CubicOffset {
         let (a, b) = self.one_point(rec, &utans);
         let mut ts = OFFSET_TS;
         let mut c_approx = self.apply(rec, a, b);
-        let mut err = self.est_error(rec, &utans, c_approx, &mut ts);
+        let err_one_point = self.est_error(rec, &utans, c_approx, &mut ts);
+        let mut err = err_one_point;
         // early out if err is in tolerance?
         let (a_minmax, b_minmax) = self.linear_minmax(rec);
         let c_minmax = self.apply(rec, a_minmax, b_minmax);
@@ -149,9 +150,23 @@ impl CubicOffset {
             err = err_minmax;
             c_approx = c_minmax;
         }
+        let (a_refined, b_refined) =
+            self.refine_minmax(rec, &utans, c_approx, a_minmax, b_minmax, ts);
+        let c_refined = self.apply(rec, a_refined, b_refined);
+        let err_refined = self.est_error(rec, &utans, c_refined, &mut ts);
+        if err_refined < err {
+            err = err_refined;
+            c_approx = c_refined;
+        }
 
         web_sys::console::log_1(
-            &format!("{}..{} ab {a:.6} {b:.6}, err {err}", rec.t0, rec.t1).into(),
+            &format!(
+                "{}{:.3}..{:.3} 1p {err_one_point:.6} mm {err_minmax:.6} r {err_refined:.6}",
+                " ".repeat(rec.depth),
+                rec.t0,
+                rec.t1
+            )
+            .into(),
         );
         if rec.depth < MAX_DEPTH && err > self.tolerance {
             let t = rec.t0 + 0.5 * (rec.t1 - rec.t0);
@@ -275,23 +290,22 @@ impl CubicOffset {
         let b01 = dt * q.p0.to_vec2();
         let b12 = dt * q.p1.to_vec2();
         let b23 = dt * q.p2.to_vec2();
-        // TODO: these should be reformulated in terms
-        // of unit tangent vectors.
-        let b01xb12 = b01.cross(b12);
-        let b01xb23 = b01.cross(b23);
-        let b12xb23 = b12.cross(b23);
-        // These are actually dot products, which might be
-        // faster with SIMD. TODO: get sign right.
-        let n0xb01 = -rec.utan0.dot(b01);
-        let n1xb01 = -rec.utan1.dot(b01);
-        let n0xb12 = -rec.utan0.dot(b12);
-        let n1xb12 = -rec.utan1.dot(b12);
-        let n0xb23 = -rec.utan0.dot(b23);
-        let n1xb23 = -rec.utan1.dot(b23);
+        let u0xb12 = rec.utan0.cross(b12);
+        let u0xb23 = rec.utan0.cross(b23);
+        let b01xu1 = b01.cross(rec.utan1);
+        let b12xu1 = b12.cross(rec.utan1);
+        let n0xb01 = rec.utan0.dot(b01);
+        let n1xb01 = rec.utan1.dot(b01);
+        let n0xb12 = rec.utan0.dot(b12);
+        let n1xb12 = rec.utan1.dot(b12);
+        let n0xb23 = rec.utan0.dot(b23);
+        let n1xb23 = rec.utan1.dot(b23);
+        // TODO: oppportunity to simplify algebra. But it's possible
+        // we rework in favor of utans[].
         let coefs_at = |t: f64| {
             let mt = 1.0 - t;
-            let ca = 6.0 * mt.powi(3) * t * t * b01xb12 + 3.0 * mt * mt * t.powi(3) * b01xb23;
-            let cb = -3.0 * mt.powi(3) * t * t * b01xb23 + -6.0 * mt * mt * t.powi(3) * b12xb23;
+            let ca = 6.0 * mt.powi(3) * t * t * u0xb12 + 3.0 * mt * mt * t.powi(3) * u0xb23;
+            let cb = -3.0 * mt.powi(3) * t * t * b01xu1 + -6.0 * mt * mt * t.powi(3) * b12xu1;
             let cc = mt.powi(4) * (mt + 3.0 * t) * n0xb01
                 + mt * mt * t * t * (3.0 * mt + t) * n1xb01
                 + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0xb12
@@ -304,9 +318,9 @@ impl CubicOffset {
         let (ca0, cb0, cc0) = coefs_at(t0);
         let (ca1, cb1, cc1) = coefs_at(t1);
         let (ca2, cb2, cc2) = coefs_at(t2);
-        let z0 = -dt * q.eval(t0).to_vec2().hypot() - cc0;
-        let z1 = -dt * q.eval(t1).to_vec2().hypot() - cc1;
-        let z2 = -dt * q.eval(t2).to_vec2().hypot() - cc2;
+        let z0 = cc0 - dt * q.eval(t0).to_vec2().hypot();
+        let z1 = cc1 - dt * q.eval(t1).to_vec2().hypot();
+        let z2 = cc2 - dt * q.eval(t2).to_vec2().hypot();
         let ca01 = ca0 + ca1;
         let cb01 = cb0 + cb1;
         let z01 = z0 + z1;
@@ -316,7 +330,47 @@ impl CubicOffset {
         let det = ca01 * cb12 - ca12 * cb01;
         let a = (z01 * cb12 - z12 * cb01) / det;
         let b = (ca01 * z12 - ca12 * z01) / det;
-        (a * b01.hypot(), b * b23.hypot())
+        (a, b)
+    }
+
+    /// Refine the minmax approximation, taking offset into account.
+    ///
+    /// Returns new (a, b) values
+    fn refine_minmax(
+        &self,
+        rec: &OffsetRec,
+        utans: &[Vec2; 3],
+        c_approx: CubicBez,
+        a: f64,
+        b: f64,
+        ts: [f64; 3],
+    ) -> (f64, f64) {
+        let mut ca = [0.0; 3];
+        let mut cb = [0.0; 3];
+        let mut cc = [0.0; 3];
+        for i in 0..3 {
+            let t = OFFSET_TS[i];
+            let utan = utans[i];
+            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
+            let p = self.c.eval(t_orig);
+            let n = turn(utan);
+            let ta = ts[i];
+            let mta = 1. - ta;
+            let pa = c_approx.eval(ta);
+            ca[i] = 3. * mta * mta * ta * rec.utan0.dot(n);
+            cb[i] = 3. * mta * ta * ta * rec.utan1.dot(n);
+            cc[i] = (pa - p).dot(n) - self.d;
+        }
+        let ca01 = ca[0] + ca[1];
+        let cb01 = cb[0] + cb[1];
+        let cc01 = cc[0] + cc[1];
+        let ca12 = ca[1] + ca[2];
+        let cb12 = cb[1] + cb[2];
+        let cc12 = cc[1] + cc[2];
+        let det = self.d * (ca01 * cb12 - ca12 * cb01);
+        let da = (cc01 * cb12 - cc12 * cb01) / det;
+        let db = (ca01 * cc12 - ca12 * cc01) / det;
+        (a - da, b - db)
     }
 }
 
