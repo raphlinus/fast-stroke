@@ -12,3 +12,4 @@ wasm-bindgen = "0.2.97"
 web-sys = "0.3.74"
 xilem_web = { git = "https://github.com/linebender/xilem", rev = "806ee4d" }
 kurbo = "0.11.1"
+arrayvec = "0.7.6"

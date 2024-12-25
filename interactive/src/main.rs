@@ -10,6 +10,7 @@ use xilem_web::{
     App, DomView, PointerMsg,
 };
 
+mod cusp;
 mod offset;
 mod perturb;
 

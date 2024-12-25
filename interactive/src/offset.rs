@@ -4,6 +4,8 @@ use kurbo::{
     common::solve_itp, BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2,
 };
 
+use crate::cusp::CuspAnalysis;
+
 // Copyright 2022 the Kurbo Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
@@ -22,6 +24,8 @@ struct CubicOffset {
     c1: f64,
     c2: f64,
     tolerance: f64,
+    // Maybe make this optional, or make creation cheap in smooth case
+    cusp: CuspAnalysis,
     // move &mut result here?
 }
 
@@ -79,6 +83,7 @@ impl CubicOffset {
         let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
         let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
         let p2xp1 = q.p2.to_vec2().cross(q.p1.to_vec2());
+        let cusp = CuspAnalysis::new(q);
         CubicOffset {
             c,
             q,
@@ -87,6 +92,7 @@ impl CubicOffset {
             c1: d2 * (p2xp0 - 2.0 * p1xp0),
             c2: d2 * (p2xp1 - p2xp0 + p1xp0),
             tolerance,
+            cusp,
         }
     }
 
@@ -139,7 +145,7 @@ impl CubicOffset {
         let err_one_point = self.est_error(rec, &utans, c_approx, &mut ts);
         let mut err = err_one_point;
         // early out if err is in tolerance?
-        let (a_minmax, b_minmax) = self.linear_minmax(rec);
+        let (a_minmax, b_minmax) = self.linear_minmax(rec, &utans);
         let c_minmax = self.apply(rec, a_minmax, b_minmax);
         ts = OFFSET_TS;
         let err_minmax = self.est_error(rec, &utans, c_minmax, &mut ts);
@@ -166,8 +172,11 @@ impl CubicOffset {
             .into(),
         );
         if rec.depth < MAX_DEPTH && err > self.tolerance {
-            let t = rec.t0 + 0.5 * (rec.t1 - rec.t0);
-            let utan_t = utans[1];
+            let (t, utan_t) = self
+                .cusp
+                .get_cusp(rec.t0..rec.t1)
+                .unwrap_or_else(|| (rec.t0 + 0.5 * (rec.t1 - rec.t0), utans[1]));
+            // TODO(robustness): deal with derivative near-zero
             let cusp = self.cusp_sign(t);
             self.subdivide(rec, result, t, utan_t, cusp, cusp);
         } else {
@@ -280,53 +289,32 @@ impl CubicOffset {
     }
 
     /// Approximate offset curve using linear minmax.
-    fn linear_minmax(&self, rec: &OffsetRec) -> (f64, f64) {
-        // TODO: maybe take q as arg?
-        let q = self.q.subsegment(rec.t0..rec.t1);
-        let dt = rec.t1 - rec.t0;
-        let b01 = dt * q.p0.to_vec2();
-        let b12 = dt * q.p1.to_vec2();
-        let b23 = dt * q.p2.to_vec2();
-        let u0xb12 = rec.utan0.cross(b12);
-        let u0xb23 = rec.utan0.cross(b23);
-        let b01xu1 = b01.cross(rec.utan1);
-        let b12xu1 = b12.cross(rec.utan1);
-        let n0xb01 = rec.utan0.dot(b01);
-        let n1xb01 = rec.utan1.dot(b01);
-        let n0xb12 = rec.utan0.dot(b12);
-        let n1xb12 = rec.utan1.dot(b12);
-        let n0xb23 = rec.utan0.dot(b23);
-        let n1xb23 = rec.utan1.dot(b23);
-        // TODO: oppportunity to simplify algebra. But it's possible
-        // we rework in favor of utans[].
-        let coefs_at = |t: f64| {
-            let mt = 1.0 - t;
-            let ca = 6.0 * mt.powi(3) * t * t * u0xb12 + 3.0 * mt * mt * t.powi(3) * u0xb23;
-            let cb = -3.0 * mt.powi(3) * t * t * b01xu1 + -6.0 * mt * mt * t.powi(3) * b12xu1;
-            let cc = mt.powi(4) * (mt + 3.0 * t) * n0xb01
-                + mt * mt * t * t * (3.0 * mt + t) * n1xb01
-                + mt.powi(3) * t * (2.0 * mt + 6.0 * t) * n0xb12
-                + mt * t.powi(3) * (6.0 * mt + 2.0 * t) * n1xb12
-                + mt * mt * t * t * (mt + 3.0 * t) * n0xb23
-                + t.powi(4) * (3.0 * mt + t) * n1xb23;
-            (ca, cb, cc)
-        };
-        let [t0, t1, t2] = OFFSET_TS;
-        let (ca0, cb0, cc0) = coefs_at(t0);
-        let (ca1, cb1, cc1) = coefs_at(t1);
-        let (ca2, cb2, cc2) = coefs_at(t2);
-        let z0 = cc0 - dt * q.eval(t0).to_vec2().hypot();
-        let z1 = cc1 - dt * q.eval(t1).to_vec2().hypot();
-        let z2 = cc2 - dt * q.eval(t2).to_vec2().hypot();
-        let ca01 = ca0 + ca1;
-        let cb01 = cb0 + cb1;
-        let z01 = z0 + z1;
-        let ca12 = ca1 + ca2;
-        let cb12 = cb1 + cb2;
-        let z12 = z1 + z2;
-        let det = ca01 * cb12 - ca12 * cb01;
-        let a = (z01 * cb12 - z12 * cb01) / det;
-        let b = (ca01 * z12 - ca12 * z01) / det;
+    fn linear_minmax(&self, rec: &OffsetRec, utans: &[Vec2; 3]) -> (f64, f64) {
+        // Bezier weights; 2 and 3 are by symmetry
+        const fn w0(t: f64) -> f64 {
+            (1.0 - t) * (1.0 - t) * (1.0 - t)
+        }
+        const fn w1(t: f64) -> f64 {
+            3.0 * (1.0 - t) * (1.0 - t) * t
+        }
+        const fn w01(t: f64) -> f64 {
+            w0(t) + w1(t)
+        }
+        let t0 = T1_FOR_OFFSET;
+        let t1 = 0.5;
+        let t2 = 1.0 - t0;
+        let ca = w1(t1) * rec.utan0.cross(utans[1]);
+        let ca1 = ca + w1(t0) * rec.utan0.cross(utans[0]);
+        let ca2 = ca + w1(t2) * rec.utan0.cross(utans[2]);
+        let cb = w1(t1) * rec.utan1.cross(utans[1]);
+        let cb1 = cb + w1(t2) * rec.utan1.cross(utans[0]);
+        let cb2 = cb + w1(t0) * rec.utan1.cross(utans[2]);
+        let cc = w01(t1) * (rec.utan0.dot(utans[1]) + rec.utan1.dot(utans[1])) - 2.0;
+        let cc1 = cc + w01(t0) * rec.utan0.dot(utans[0]) + w01(t2) * rec.utan1.dot(utans[0]);
+        let cc2 = cc + w01(t2) * rec.utan0.dot(utans[2]) + w01(t0) * rec.utan1.dot(utans[2]);
+        let idet = 1.0 / (ca1 * cb2 - ca2 * cb1);
+        let a = (cc1 * cb2 - cc2 * cb1) * idet;
+        let b = (ca1 * cc2 - ca2 * cc1) * idet;
         (a, b)
     }
 
