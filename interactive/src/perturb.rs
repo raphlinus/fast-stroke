@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 20.0;
+const ERROR_SCALE: f64 = 2.0;
 
 pub struct CurveOffset {
     c: CubicBez,
@@ -247,7 +247,7 @@ pub fn error_by_rays(c: CubicBez, offset: f64, approx: CubicBez) -> Vec<(f64, f6
             let c1 = p1.dot(d);
             let c2 = p2.dot(d);
             let c3 = p3.dot(d);
-            let mut best = 10f64;
+            let mut best = 1e3f64;
             for t in solve_cubic(c0, c1, c2, c3) {
                 if (0.0..=1.0).contains(&t) {
                     let approx_p = approx.eval(t);

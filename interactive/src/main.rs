@@ -116,8 +116,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c_one_point2 = co.apply(a3, b3, d);
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
     */
+    let c_one = best_soln.apply(&co);
+    let path_one = c_one.to_path(0.0);
+    let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
 
-    let tolerance = 2.0;
+    let tolerance = 1e-3;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
     const NONE: Color = Color::TRANSPARENT;
@@ -136,6 +139,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         subdiv_pts(&path_offset),
         path_offset
             .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
+        path_one
+            .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
+        err_one
+            .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)

@@ -153,15 +153,15 @@ impl CubicOffset {
             err = err_minmax;
             c_approx = c_minmax;
         }
-        let (a_refined, b_refined) =
-            self.refine_minmax(rec, &utans, c_approx, a_minmax, b_minmax, ts);
+        let (mut a_refined, mut b_refined) = (a_minmax, b_minmax);
+        (a_refined, b_refined) =
+            self.refine_minmax(rec, &utans, c_approx, a_refined, b_refined, ts);
         let c_refined = self.apply(rec, a_refined, b_refined);
         let err_refined = self.est_error(rec, &utans, c_refined, &mut ts);
         if err_refined < err {
             err = err_refined;
             c_approx = c_refined;
         }
-
         web_sys::console::log_1(
             &format!(
                 "{}{:.3}..{:.3} 1p {err_one_point:.6} mm {err_minmax:.6} r {err_refined:.6}",
@@ -171,11 +171,10 @@ impl CubicOffset {
             )
             .into(),
         );
+
         if rec.depth < MAX_DEPTH && err > self.tolerance {
-            let (t, utan_t) = self
-                .cusp
-                .get_cusp(rec.t0..rec.t1)
-                .unwrap_or_else(|| (rec.t0 + 0.5 * (rec.t1 - rec.t0), utans[1]));
+            let t = self.find_subdivision_point(rec);
+            let utan_t = self.q.eval(t).to_vec2().normalize();
             // TODO(robustness): deal with derivative near-zero
             let cusp = self.cusp_sign(t);
             self.subdivide(rec, result, t, utan_t, cusp, cusp);
@@ -356,6 +355,25 @@ impl CubicOffset {
         let da = (cc01 * cb12 - cc12 * cb01) / det;
         let db = (ca01 * cc12 - ca12 * cc01) / det;
         (a - da, b - db)
+    }
+
+    fn find_subdivision_point(&self, rec: &OffsetRec) -> f64 {
+        const N: usize = 100;
+        let mut integ = [0.0; N];
+        let mut sum = 0.0;
+        for i in 0..N {
+            let t = rec.t0 + (i as f64 + 0.5) * (1.0 / N as f64) * (rec.t1 - rec.t0);
+            let dens = 1.0 / self.q.eval(t).to_vec2().hypot2().powf(1.5);
+            sum += dens;
+            integ[i] = sum;
+        }
+        let i = integ.binary_search_by(|x| x.total_cmp(&(0.5 * sum)));
+        let i = match i {
+            Ok(i) => i,
+            Err(i) => i,
+        };
+        // TODO: lerp
+        rec.t0 + (i as f64 + 0.5) * (1.0 / N as f64) * (rec.t1 - rec.t0)
     }
 }
 
