@@ -120,7 +120,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_one = c_one.to_path(0.0);
     let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
 
-    let tolerance = 1e-3;
+    let tolerance = 0.25;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
     const NONE: Color = Color::TRANSPARENT;

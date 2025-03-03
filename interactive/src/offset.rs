@@ -1,7 +1,8 @@
 //! An implementation of curve offset.
 
 use kurbo::{
-    common::solve_itp, BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2,
+    common::{solve_itp, solve_quadratic},
+    BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2,
 };
 
 use crate::cusp::CuspAnalysis;
@@ -357,23 +358,41 @@ impl CubicOffset {
         (a - da, b - db)
     }
 
+    // Note: probably want to return unit tangent for robustness, rather
+    // than re-computing it from the cubic.
     fn find_subdivision_point(&self, rec: &OffsetRec) -> f64 {
-        const N: usize = 100;
-        let mut integ = [0.0; N];
-        let mut sum = 0.0;
-        for i in 0..N {
-            let t = rec.t0 + (i as f64 + 0.5) * (1.0 / N as f64) * (rec.t1 - rec.t0);
-            let dens = 1.0 / self.q.eval(t).to_vec2().hypot2().powf(1.5);
-            sum += dens;
-            integ[i] = sum;
+        // outline of work:
+        // if segment contains inflection point, then t = 0.5 (can defer this, and might not be ideal)
+        // else, average
+        // alternative idea wrt inflection point: if solution count in t range is not 1, then
+        // fall back to t = 0.5
+        let mut t = 0.0;
+        let mut n_soln = 0;
+        // Note: do we want to track p0 & p3 in rec, to avoid repeated eval?
+        let chord = self.c.eval(rec.t1) - self.c.eval(rec.t0);
+        if chord.cross(rec.utan0) * chord.cross(rec.utan1) < 0.0 {
+            let tan = rec.utan0 + rec.utan1;
+            // set up quadratic equation for matching tangents
+            let z0 = tan.cross(self.q.p0.to_vec2());
+            let z1 = tan.cross(self.q.p1.to_vec2());
+            let z2 = tan.cross(self.q.p2.to_vec2());
+            let c0 = z0;
+            let c1 = 2.0 * (z1 - z0);
+            let c2 = (z2 - z1) - (z1 - z0);
+            for root in solve_quadratic(c0, c1, c2) {
+                if root > rec.t0 && root < rec.t1 {
+                    t = root;
+                    n_soln += 1;
+                }
+            }
         }
-        let i = integ.binary_search_by(|x| x.total_cmp(&(0.5 * sum)));
-        let i = match i {
-            Ok(i) => i,
-            Err(i) => i,
-        };
-        // TODO: lerp
-        rec.t0 + (i as f64 + 0.5) * (1.0 / N as f64) * (rec.t1 - rec.t0)
+        if n_soln == 1 {
+            web_sys::console::log_1(&format!("{}..{} -> {t}", rec.t0, rec.t1).into());
+            t
+        } else {
+            web_sys::console::log_1(&format!("{}..{} -> midpoint", rec.t0, rec.t1).into());
+            0.5 * (rec.t0 + rec.t1)
+        }
     }
 }
 
