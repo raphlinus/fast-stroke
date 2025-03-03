@@ -223,9 +223,18 @@ impl CubicOffset {
         // Scale factor from derivatives to displacements
         let s = (1. / 3.) * (rec.t1 - rec.t0);
         let p0 = self.c.eval(rec.t0) + self.d * turn(rec.utan0);
-        let p1 = p0 + s * self.q.eval(rec.t0).to_vec2() + a * self.d * rec.utan0;
+        let l0 = s * self.q.eval(rec.t0).to_vec2().length() + a * self.d;
+        let mut p1 = p0;
+        if l0 * rec.cusp0 > 0.0 {
+            p1 += l0 * rec.utan0;
+        }
         let p3 = self.c.eval(rec.t1) + self.d * turn(rec.utan1);
-        let p2 = p3 - s * self.q.eval(rec.t1).to_vec2() + b * self.d * rec.utan1;
+        let mut p2 = p3;
+        let l1 = s * self.q.eval(rec.t1).to_vec2().length() - b * self.d;
+        if l1 * rec.cusp1 > 0.0 {
+            p2 -= l1 * rec.utan1;
+        }
+        //web_sys::console::log_1(&format!("l0={l0} l1={l1}").into());
         CubicBez::new(p0, p1, p2, p3)
     }
 
@@ -387,10 +396,10 @@ impl CubicOffset {
             }
         }
         if n_soln == 1 {
-            web_sys::console::log_1(&format!("{}..{} -> {t}", rec.t0, rec.t1).into());
+            //web_sys::console::log_1(&format!("{}..{} -> {t}", rec.t0, rec.t1).into());
             t
         } else {
-            web_sys::console::log_1(&format!("{}..{} -> midpoint", rec.t0, rec.t1).into());
+            //web_sys::console::log_1(&format!("{}..{} -> midpoint", rec.t0, rec.t1).into());
             0.5 * (rec.t0 + rec.t1)
         }
     }

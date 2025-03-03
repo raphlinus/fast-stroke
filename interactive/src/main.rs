@@ -197,6 +197,10 @@ pub fn main() {
     state.p1 = Point::new(350.0, 146.0);
     state.p2 = Point::new(496.0, 537.0);
     state.p3 = Point::new(739.0, 244.0);
+    // state.p0 = Point::new(742.483763921753, 245.69451584513587);
+    // state.p1 = Point::new(742.3156048952269, 245.37897448914785);
+    // state.p2 = Point::new(741.1749624891498, 244.83296435754676);
+    // state.p3 = Point::new(739.0, 244.0);
     state.offset = 100.;
     state.tolerance = 1.;
 
