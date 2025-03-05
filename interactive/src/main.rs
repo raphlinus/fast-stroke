@@ -120,6 +120,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_one = c_one.to_path(0.0);
     let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
 
+    let (a2, b2) = perturb::least_squares(c);
+    let soln_lse = perturb::OffsetSolution::from_a_b(a2, b2, d);
+    let c_lse = soln_lse.apply(&co);
+    let path_lse = c_lse.to_path(0.0);
+    let err_lse = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
+
     let tolerance = 0.25;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
@@ -129,12 +135,14 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new(state.p0, state.p1).stroke(Color::BLUE, stroke.clone()),
         Line::new(state.p2, state.p3).stroke(Color::BLUE, stroke.clone()),
         Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
+        /*
         Line::new((100., 200. - y0), (267., 200. - y0)).stroke(Color::LIME, stroke.clone()),
         Line::new((100., 200. + y0), (267., 200. + y0)).stroke(Color::LIME, stroke.clone()),
         Line::new((267., 200. - y1), (433., 200. - y1)).stroke(Color::LIME, stroke.clone()),
         Line::new((267., 200. + y1), (433., 200. + y1)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
+        */
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
@@ -143,9 +151,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_one
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        path_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
         err_one
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        err_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),

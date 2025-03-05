@@ -1,4 +1,4 @@
-use kurbo::QuadBez;
+use kurbo::{offset::CubicOffset, QuadBez};
 // Doing lots of experiments, will try things and then move on.
 #[allow(unused)]
 use kurbo::{
@@ -443,6 +443,49 @@ pub fn est_err_refined(c: CubicBez, a: f64, b: f64, d: f64) -> [f64; 3] {
         let err = dist_err + 0.15 * angle_err;
         ERROR_SCALE * 500.0 * err / d
     })
+}
+
+/// Number of subdivisions for least squares integration
+/// We do dumb integration, but maybe something like Gauss-Lagrange would be better.
+const LSE_N: usize = 8;
+
+/// Compute solution based on minimizing least-squares distance error
+pub fn least_squares(c: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let mut aa = 0.0;
+    let mut ab = 0.0;
+    let mut ac = 0.0;
+    let mut bb = 0.0;
+    let mut bc = 0.0;
+    // useful for computing error
+    let mut cc = 0.0;
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let c = CubicBez::new(
+        turn(utan0).to_point(),
+        turn(utan0).to_point(),
+        turn(utan1).to_point(),
+        turn(utan1).to_point(),
+    );
+    for i in 1..=LSE_N {
+        let t = i as f64 / (LSE_N + 2) as f64;
+        let utan = co.q.eval(t).to_vec2().normalize();
+        let c_t = c.eval(t) - turn(utan).to_point();
+        let mt = 1.0 - t;
+        let a_t = 3.0 * mt * t * mt * utan0;
+        let b_t = 3.0 * mt * t * t * utan1;
+        aa += a_t.dot(a_t);
+        ab += a_t.dot(b_t);
+        ac += a_t.dot(c_t);
+        bb += b_t.dot(b_t);
+        bc += b_t.dot(c_t);
+        cc += c_t.dot(c_t);
+    }
+    let idet = 1.0 / (aa * bb - ab * ab);
+    // Don't do the scaling by length when moving to offset.rs
+    let a = -idet * (ac * bb - ab * bc) / co.q.p0.to_vec2().length();
+    let b = -idet * (aa * bc - ac * ab) / co.q.p2.to_vec2().length();
+    (a, b)
 }
 
 impl OffsetSolution {
