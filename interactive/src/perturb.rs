@@ -40,6 +40,16 @@ pub struct OffsetSolution {
     ts: [f64; 3],
 }
 
+pub struct OffsetSolutionLse {
+    // offset
+    d: f64,
+    // parameters
+    a: f64,
+    b: f64,
+    // t values on approximation corresponding to T1_FOR_OFFSET, 1/2 and 1 - T1_FOR_OFFSET
+    ts: [f64; LSE_N],
+}
+
 impl CurveOffset {
     pub fn new(c: CubicBez) -> Self {
         let q = c.deriv();
@@ -468,7 +478,7 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
         turn(utan1).to_point(),
     );
     for i in 1..=LSE_N {
-        let t = i as f64 / (LSE_N + 2) as f64;
+        let t = i as f64 / (LSE_N + 1) as f64;
         let utan = co.q.eval(t).to_vec2().normalize();
         let c_t = c.eval(t) - turn(utan).to_point();
         let mt = 1.0 - t;
@@ -555,6 +565,57 @@ impl OffsetSolution {
         let db = (ca01 * cc12 - ca12 * cc01) / det;
         self.a -= da;
         self.b -= db;
+    }
+}
+
+impl OffsetSolutionLse {
+    pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
+        let mut ts = [0.0; LSE_N];
+        for i in 0..LSE_N {
+            ts[i] = (i + 1) as f64 / (LSE_N + 1) as f64;
+        }
+        Self { d, a, b, ts }
+    }
+
+    pub fn apply(&self, co: &CurveOffset) -> CubicBez {
+        co.apply(self.a, self.b, self.d)
+    }
+
+    pub fn refine_lse(&mut self, co: &CurveOffset) {
+        let mut aa = 0.0;
+        let mut ab = 0.0;
+        let mut ac = 0.0;
+        let mut bb = 0.0;
+        let mut bc = 0.0;
+        // useful for computing error
+        let mut cc = 0.0;
+        let utan0 = co.q.p0.to_vec2().normalize();
+        let utan1 = co.q.p2.to_vec2().normalize();
+        let c_approx = self.apply(co);
+        for i in 0..LSE_N {
+            let t_gen = (i + 1) as f64 / (LSE_N + 1) as f64;
+            let t = co.newton_step_t(self.a, self.b, self.d, t_gen, self.ts[i]);
+            self.ts[i] = t;
+            let utan = co.q.eval(t_gen).to_vec2().normalize();
+            let p = co.c.eval(t_gen);
+            let p_off = p + self.d * turn(utan);
+            let c_t = c_approx.eval(t) - p_off;
+            let mt = 1.0 - t;
+            let a_t = 3.0 * mt * t * mt * utan0;
+            let b_t = 3.0 * mt * t * t * utan1;
+            aa += a_t.dot(a_t);
+            ab += a_t.dot(b_t);
+            ac += a_t.dot(c_t);
+            bb += b_t.dot(b_t);
+            bc += b_t.dot(c_t);
+            cc += c_t.dot(c_t);
+        }
+        let idet = 1.0 / (self.d * (aa * bb - ab * ab));
+        // Don't do the scaling by length when moving to offset.rs
+        let a = -idet * (ac * bb - ab * bc) / co.q.p0.to_vec2().length();
+        let b = -idet * (aa * bc - ac * ab) / co.q.p2.to_vec2().length();
+        self.a += a;
+        self.b += b;
     }
 }
 

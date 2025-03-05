@@ -121,7 +121,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
 
     let (a2, b2) = perturb::least_squares(c);
-    let soln_lse = perturb::OffsetSolution::from_a_b(a2, b2, d);
+    let mut soln_lse = perturb::OffsetSolutionLse::from_a_b(a2, b2, d);
+    for _ in 0..1 {
+        soln_lse.refine_lse(&co);
+    }
     let c_lse = soln_lse.apply(&co);
     let path_lse = c_lse.to_path(0.0);
     let err_lse = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
