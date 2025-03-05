@@ -480,16 +480,17 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
     for i in 1..=LSE_N {
         let t = i as f64 / (LSE_N + 1) as f64;
         let utan = co.q.eval(t).to_vec2().normalize();
-        let c_t = c.eval(t) - turn(utan).to_point();
+        let n = turn(utan);
+        let c_t = c.eval(t).to_vec2().dot(n) - 1.0;
         let mt = 1.0 - t;
-        let a_t = 3.0 * mt * t * mt * utan0;
-        let b_t = 3.0 * mt * t * t * utan1;
-        aa += a_t.dot(a_t);
-        ab += a_t.dot(b_t);
-        ac += a_t.dot(c_t);
-        bb += b_t.dot(b_t);
-        bc += b_t.dot(c_t);
-        cc += c_t.dot(c_t);
+        let a_t = 3.0 * mt * t * mt * utan0.dot(n);
+        let b_t = 3.0 * mt * t * t * utan1.dot(n);
+        aa += a_t * a_t;
+        ab += a_t * b_t;
+        ac += a_t * c_t;
+        bb += b_t * b_t;
+        bc += b_t * c_t;
+        cc += c_t * c_t;
     }
     let idet = 1.0 / (aa * bb - ab * ab);
     // Don't do the scaling by length when moving to offset.rs

@@ -122,7 +122,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
 
     let (a2, b2) = perturb::least_squares(c);
     let mut soln_lse = perturb::OffsetSolutionLse::from_a_b(a2, b2, d);
-    for _ in 0..1 {
+    for _ in 0..100 {
         soln_lse.refine_lse(&co);
     }
     let c_lse = soln_lse.apply(&co);
