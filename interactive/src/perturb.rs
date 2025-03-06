@@ -9,7 +9,8 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 2.0;
+const ERROR_SCALE: f64 = 100.0;
+const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
     c: CubicBez,
@@ -316,8 +317,8 @@ pub fn linear_minmax(c: CubicBez) -> (f64, f64) {
     let cb12 = cb1 + cb2;
     let z12 = z1 + z2;
     let det = ca01 * cb12 - ca12 * cb01;
-    let dot = ca01 * cb01 + ca12 * cb12;
-    web_sys::console::log_1(&format!("{:.6} {:.6}", det * 1e-9, dot * 1e-9).into());
+    //let dot = ca01 * cb01 + ca12 * cb12;
+    //web_sys::console::log_1(&format!("{:.6} {:.6}", det * 1e-9, dot * 1e-9).into());
     let a = (z01 * cb12 - z12 * cb01) / det;
     let b = (ca01 * z12 - ca12 * z01) / det;
     (a, b)
@@ -462,13 +463,17 @@ const LSE_N: usize = 8;
 /// Compute solution based on minimizing least-squares distance error
 pub fn least_squares(c: CubicBez) -> (f64, f64) {
     let co = CurveOffset::new(c);
-    let mut aa = 0.0;
-    let mut ab = 0.0;
-    let mut ac = 0.0;
-    let mut bb = 0.0;
-    let mut bc = 0.0;
-    // useful for computing error
-    let mut cc = 0.0;
+    let mut aa_n = 0.0;
+    let mut aa_t = 0.0;
+    let mut ab_n = 0.0;
+    let mut ab_t = 0.0;
+    let mut ac_n = 0.0;
+    let mut ac_t = 0.0;
+    let mut bb_n = 0.0;
+    let mut bb_t = 0.0;
+    let mut bc_n = 0.0;
+    let mut bc_t = 0.0;
+    // we'll do cc later
     let utan0 = co.q.p0.to_vec2().normalize();
     let utan1 = co.q.p2.to_vec2().normalize();
     let c = CubicBez::new(
@@ -481,18 +486,34 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
         let t = i as f64 / (LSE_N + 1) as f64;
         let utan = co.q.eval(t).to_vec2().normalize();
         let n = turn(utan);
-        let c_t = c.eval(t).to_vec2().dot(n) - 1.0;
+        let c_n = c.eval(t).to_vec2().dot(n) - 1.0;
+        let c_t = c.eval(t).to_vec2().cross(n);
         let mt = 1.0 - t;
-        let a_t = 3.0 * mt * t * mt * utan0.dot(n);
-        let b_t = 3.0 * mt * t * t * utan1.dot(n);
-        aa += a_t * a_t;
-        ab += a_t * b_t;
-        ac += a_t * c_t;
-        bb += b_t * b_t;
-        bc += b_t * c_t;
-        cc += c_t * c_t;
+        let a_n = 3.0 * mt * t * mt * utan0.dot(n);
+        let a_t = 3.0 * mt * t * mt * utan0.cross(n);
+        let b_n = 3.0 * mt * t * t * utan1.dot(n);
+        let b_t = 3.0 * mt * t * t * utan1.cross(n);
+        aa_n += a_n * a_n;
+        aa_t += a_t * a_t;
+        ab_n += a_n * b_n;
+        ab_t += a_t * b_t;
+        ac_n += a_n * c_n;
+        ac_t += a_t * c_t;
+        bb_n += b_n * b_n;
+        bb_t += b_t * b_t;
+        bc_n += b_n * c_n;
+        bc_t += b_t * c_t;
     }
+    let blend = BLEND;
+    let aa = aa_n + blend * aa_t;
+    let ab = ab_n + blend * ab_t;
+    let ac = ac_n + blend * ac_t;
+    let bb = bb_n + blend * bb_t;
+    let bc = bc_n + blend * bc_t;
     let idet = 1.0 / (aa * bb - ab * ab);
+    web_sys::console::log_1(
+        &format!("det = {:.3e}, aa * bb = {:.3e}", aa * bb - ab * ab, aa * bb).into(),
+    );
     // Don't do the scaling by length when moving to offset.rs
     let a = -idet * (ac * bb - ab * bc) / co.q.p0.to_vec2().length();
     let b = -idet * (aa * bc - ac * ab) / co.q.p2.to_vec2().length();
@@ -583,13 +604,16 @@ impl OffsetSolutionLse {
     }
 
     pub fn refine_lse(&mut self, co: &CurveOffset) {
-        let mut aa = 0.0;
-        let mut ab = 0.0;
-        let mut ac = 0.0;
-        let mut bb = 0.0;
-        let mut bc = 0.0;
-        // useful for computing error
-        let mut cc = 0.0;
+        let mut aa_n = 0.0;
+        let mut aa_t = 0.0;
+        let mut ab_n = 0.0;
+        let mut ab_t = 0.0;
+        let mut ac_n = 0.0;
+        let mut ac_t = 0.0;
+        let mut bb_n = 0.0;
+        let mut bb_t = 0.0;
+        let mut bc_n = 0.0;
+        let mut bc_t = 0.0;
         let utan0 = co.q.p0.to_vec2().normalize();
         let utan1 = co.q.p2.to_vec2().normalize();
         let c_approx = self.apply(co);
@@ -599,18 +623,33 @@ impl OffsetSolutionLse {
             self.ts[i] = t;
             let utan = co.q.eval(t_gen).to_vec2().normalize();
             let p = co.c.eval(t_gen);
-            let p_off = p + self.d * turn(utan);
-            let c_t = c_approx.eval(t) - p_off;
+            let n = turn(utan);
+            let p_off = p + self.d * n;
+            let err_vec = c_approx.eval(t) - p_off;
+            let c_n = err_vec.dot(n);
+            let c_t = err_vec.cross(n);
             let mt = 1.0 - t;
-            let a_t = 3.0 * mt * t * mt * utan0;
-            let b_t = 3.0 * mt * t * t * utan1;
-            aa += a_t.dot(a_t);
-            ab += a_t.dot(b_t);
-            ac += a_t.dot(c_t);
-            bb += b_t.dot(b_t);
-            bc += b_t.dot(c_t);
-            cc += c_t.dot(c_t);
+            let a_n = 3.0 * mt * t * mt * utan0.dot(n);
+            let a_t = 3.0 * mt * t * mt * utan0.cross(n);
+            let b_n = 3.0 * mt * t * t * utan1.dot(n);
+            let b_t = 3.0 * mt * t * t * utan1.cross(n);
+            aa_n += a_n * a_n;
+            aa_t += a_t * a_t;
+            ab_n += a_n * b_n;
+            ab_t += a_t * b_t;
+            ac_n += a_n * c_n;
+            ac_t += a_t * c_t;
+            bb_n += b_n * b_n;
+            bb_t += b_t * b_t;
+            bc_n += b_n * c_n;
+            bc_t += b_t * c_t;
         }
+        let blend = BLEND;
+        let aa = aa_n + blend * aa_t;
+        let ab = ab_n + blend * ab_t;
+        let ac = ac_n + blend * ac_t;
+        let bb = bb_n + blend * bb_t;
+        let bc = bc_n + blend * bc_t;
         let idet = 1.0 / (self.d * (aa * bb - ab * ab));
         // Don't do the scaling by length when moving to offset.rs
         let a = -idet * (ac * bb - ab * bc) / co.q.p0.to_vec2().length();

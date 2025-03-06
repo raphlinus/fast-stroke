@@ -163,15 +163,15 @@ impl CubicOffset {
             err = err_refined;
             c_approx = c_refined;
         }
-        web_sys::console::log_1(
-            &format!(
-                "{}{:.3}..{:.3} 1p {err_one_point:.6} mm {err_minmax:.6} r {err_refined:.6}",
-                " ".repeat(rec.depth),
-                rec.t0,
-                rec.t1
-            )
-            .into(),
-        );
+        // web_sys::console::log_1(
+        //     &format!(
+        //         "{}{:.3}..{:.3} 1p {err_one_point:.6} mm {err_minmax:.6} r {err_refined:.6}",
+        //         " ".repeat(rec.depth),
+        //         rec.t0,
+        //         rec.t1
+        //     )
+        //     .into(),
+        // );
 
         if rec.depth < MAX_DEPTH && err > self.tolerance {
             let t = self.find_subdivision_point(rec);
