@@ -46,6 +46,7 @@ struct OffsetRec {
     cusp1: f64,
     depth: usize,
     utans: [Vec2; N_LSE],
+    p_offset: [Point; N_LSE],
 }
 
 // We never let cusp values haven an absolute value smaller than
@@ -269,11 +270,9 @@ impl CubicOffset {
         let mut max_err = 0.0;
         for i in 0..N_LSE {
             let mut ta = ts[i];
-            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
-            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
             // TODO: probably should also store in rec, we always need this
             let utan = rec.utans[i];
-            let p = self.c.eval(t_orig) + self.d * turn(utan);
+            let p = rec.p_offset[i];
             // Newton step to refine ta value
             let pa = c_approx.eval(ta);
             let tana = qa.eval(ta).to_vec2();
@@ -303,13 +302,9 @@ impl CubicOffset {
         let mut bb = 0.0;
         let mut bc = 0.0;
         for i in 0..N_LSE {
-            let t_orig = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
-            let p_orig = self.c.eval(rec.t0 + t_orig * (rec.t1 - rec.t0));
             let n = turn(rec.utans[i]);
-            let p_offset = p_orig + self.d * n;
             let t = ts[i];
-            // This is computed in eval_err, should probably retain
-            let err_vec = c_approx.eval(t) - p_offset;
+            let err_vec = c_approx.eval(t) - rec.p_offset[i];
             let c_n = err_vec.dot(n);
             let c_t = err_vec.cross(n);
             let mt = 1.0 - t;
@@ -378,13 +373,15 @@ impl OffsetRec {
         cusp1: f64,
         depth: usize,
     ) -> Self {
-        let mut utans = [Vec2::new(0.0, 0.0); N_LSE];
+        let mut utans = [Vec2::ZERO; N_LSE];
+        let mut p_offset = [Point::ZERO; N_LSE];
         let dt = (t1 - t0) * (1.0 / (N_LSE + 1) as f64);
         for i in 0..N_LSE {
             let t = t0 + (i + 1) as f64 * dt;
             // TODO: deal with zero derivative
             let utan = co.q.eval(t).to_vec2().normalize();
             utans[i] = utan;
+            p_offset[i] = co.c.eval(t) + co.d * turn(utan);
         }
         OffsetRec {
             t0,
@@ -395,6 +392,7 @@ impl OffsetRec {
             cusp1,
             depth,
             utans,
+            p_offset,
         }
     }
 }
