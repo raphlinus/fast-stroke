@@ -1,4 +1,4 @@
-use kurbo::{offset::CubicOffset, QuadBez};
+use kurbo::QuadBez;
 // Doing lots of experiments, will try things and then move on.
 #[allow(unused)]
 use kurbo::{
@@ -514,9 +514,9 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
     let bb = bb_n + blend * bb_t;
     let bc = bc_n + blend * bc_t;
     let idet = 1.0 / (aa * bb - ab * ab);
-    web_sys::console::log_1(
-        &format!("det = {:.3e}, aa * bb = {:.3e}", aa * bb - ab * ab, aa * bb).into(),
-    );
+    // web_sys::console::log_1(
+    //     &format!("det = {:.3e}, aa * bb = {:.3e}", aa * bb - ab * ab, aa * bb).into(),
+    // );
     let a = -idet * (ac * bb - ab * bc);
     let b = -idet * (aa * bc - ac * ab);
     // Don't do the scaling by length when moving to offset.rs
@@ -530,7 +530,7 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
         + b * b * (bb_n + bb_t)
         + 2.0 * b * (bc_n + bc_t)
         + (cc_n + cc_t);
-    web_sys::console::log_1(&format!("0: err_min = {err_min:.8}, err_max = {err_max:.8}").into());
+    // web_sys::console::log_1(&format!("0: err_min = {err_min:.8}, err_max = {err_max:.8}").into());
     (a_scaled, b_scaled)
 }
 
@@ -692,9 +692,9 @@ impl OffsetSolutionLse {
             + 2.0 * b * (bc_n + bc_t)
             + (cc_n + cc_t);
         let err_max = err_max / self.d.powi(2);
-        web_sys::console::log_1(
-            &format!("   err_min = {err_min:.8}, err_max = {err_max:.8}").into(),
-        );
+        // web_sys::console::log_1(
+        //     &format!("   err_min = {err_min:.8}, err_max = {err_max:.8}").into(),
+        // );
     }
 
     /// Evaluate error and also do Newton step on `ts`.
@@ -713,7 +713,7 @@ impl OffsetSolutionLse {
             err += err_vec.length_squared();
         }
         err /= self.d.powi(2);
-        web_sys::console::log_1(&format!("err = {err:.8}").into());
+        // web_sys::console::log_1(&format!("err = {err:.8}").into());
         err
     }
 }

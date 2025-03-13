@@ -1,3 +1,6 @@
+// Copyright 2022 the Kurbo Authors
+// SPDX-License-Identifier: Apache-2.0 OR MIT
+
 //! An implementation of curve offset.
 
 use kurbo::{
@@ -7,8 +10,9 @@ use kurbo::{
 
 use crate::cusp::CuspAnalysis;
 
-// Copyright 2022 the Kurbo Authors
-// SPDX-License-Identifier: Apache-2.0 OR MIT
+const N_LSE: usize = 8;
+
+const BLEND: f64 = 1e-3;
 
 /// Info that's constant for the curve.
 struct CubicOffset {
@@ -41,6 +45,7 @@ struct OffsetRec {
     cusp0: f64,
     cusp1: f64,
     depth: usize,
+    utans: [Vec2; N_LSE],
 }
 
 // We never let cusp values haven an absolute value smaller than
@@ -52,10 +57,6 @@ const CUSP_EPSILON: f64 = 1e-12;
 /// Perhaps should be configurable.
 const MAX_DEPTH: usize = 8;
 
-// t values for minmax and error estimation
-const T1_FOR_OFFSET: f64 = 1. / 6.;
-const OFFSET_TS: [f64; 3] = [T1_FOR_OFFSET, 0.5, 1. - T1_FOR_OFFSET];
-
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let mut result = BezPath::new();
     let co = CubicOffset::new(c, d, tolerance);
@@ -63,15 +64,7 @@ pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let (cusp0, utan0) = co.cusp_and_utan(co.q.p0, co.c0);
     let (cusp1, utan1) = co.cusp_and_utan(co.q.p2, co.c0 + co.c1 + co.c2);
     result.move_to(c.p0 + d * turn(utan0));
-    let rec = OffsetRec {
-        t0: 0.0,
-        t1: 1.0,
-        utan0,
-        utan1,
-        cusp0,
-        cusp1,
-        depth: 0,
-    };
+    let rec = OffsetRec::new(&co, 0., 1., utan0, utan1, cusp0, cusp1, 0);
     co.offset_rec(&rec, &mut result);
     result
 }
@@ -139,41 +132,33 @@ impl CubicOffset {
             self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
             return;
         }
-        let utans = self.utans(rec);
-        let (a, b) = self.one_point(rec, &utans);
-        let mut ts = OFFSET_TS;
+        let (a, b) = self.least_squares(rec);
+        let mut ts = [0.0; N_LSE];
+        for i in 0..N_LSE {
+            ts[i] = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+        }
         let mut c_approx = self.apply(rec, a, b);
-        let err_one_point = self.est_error(rec, &utans, c_approx, &mut ts);
-        let mut err = err_one_point;
-        // early out if err is in tolerance?
-        let (a_minmax, b_minmax) = self.linear_minmax(rec, &utans);
-        let c_minmax = self.apply(rec, a_minmax, b_minmax);
-        ts = OFFSET_TS;
-        let err_minmax = self.est_error(rec, &utans, c_minmax, &mut ts);
-        if err_minmax < err {
-            err = err_minmax;
-            c_approx = c_minmax;
+        let err_init = self.eval_err(rec, c_approx, &mut ts);
+        let mut err = err_init;
+        // speed/quality tradeoff: skip refinement if in tolerance
+        let (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a, b);
+        let c_approx2 = self.apply(rec, a2, b2);
+        let err2 = self.eval_err(rec, c_approx2, &mut ts);
+        if err2 < err {
+            c_approx = c_approx2;
+            err = err2;
         }
-        let (mut a_refined, mut b_refined) = (a_minmax, b_minmax);
-        (a_refined, b_refined) =
-            self.refine_minmax(rec, &utans, c_approx, a_refined, b_refined, ts);
-        let c_refined = self.apply(rec, a_refined, b_refined);
-        let err_refined = self.est_error(rec, &utans, c_refined, &mut ts);
-        if err_refined < err {
-            err = err_refined;
-            c_approx = c_refined;
-        }
-        // web_sys::console::log_1(
-        //     &format!(
-        //         "{}{:.3}..{:.3} 1p {err_one_point:.6} mm {err_minmax:.6} r {err_refined:.6}",
-        //         " ".repeat(rec.depth),
-        //         rec.t0,
-        //         rec.t1
-        //     )
-        //     .into(),
-        // );
+        web_sys::console::log_1(
+            &format!(
+                "{}{:.3}..{:.3} init {err_init:.6} refined {err2:.6}",
+                " ".repeat(rec.depth),
+                rec.t0,
+                rec.t1
+            )
+            .into(),
+        );
 
-        if rec.depth < MAX_DEPTH && err > self.tolerance {
+        if rec.depth < MAX_DEPTH && err > self.tolerance.powi(2) {
             let t = self.find_subdivision_point(rec);
             let utan_t = self.q.eval(t).to_vec2().normalize();
             // TODO(robustness): deal with derivative near-zero
@@ -193,25 +178,27 @@ impl CubicOffset {
         cusp_t_minus: f64,
         cusp_t_plus: f64,
     ) {
-        let rec0 = OffsetRec {
-            t0: rec.t0,
-            t1: t,
-            utan0: rec.utan0,
-            utan1: utan_t,
-            cusp0: rec.cusp0,
-            cusp1: cusp_t_minus,
-            depth: rec.depth + 1,
-        };
+        let rec0 = OffsetRec::new(
+            self,
+            rec.t0,
+            t,
+            rec.utan0,
+            utan_t,
+            rec.cusp0,
+            cusp_t_minus,
+            rec.depth + 1,
+        );
         self.offset_rec(&rec0, result);
-        let rec1 = OffsetRec {
-            t0: t,
-            t1: rec.t1,
-            utan0: utan_t,
-            utan1: rec.utan1,
-            cusp0: cusp_t_plus,
-            cusp1: rec.cusp1,
-            depth: rec.depth + 1,
-        };
+        let rec1 = OffsetRec::new(
+            self,
+            t,
+            rec.t1,
+            utan_t,
+            rec.utan1,
+            cusp_t_plus,
+            rec.cusp1,
+            rec.depth + 1,
+        );
         self.offset_rec(&rec1, result);
     }
 
@@ -238,133 +225,108 @@ impl CubicOffset {
         CubicBez::new(p0, p1, p2, p3)
     }
 
-    fn utans(&self, rec: &OffsetRec) -> [Vec2; 3] {
-        let q = self.q.subsegment(rec.t0..rec.t1);
-        OFFSET_TS.map(|t| q.eval(t).to_vec2().normalize())
-    }
-
-    /// Approximate curve using one-point shape control.
-    ///
-    /// This solves (a, b) parameters (in terms of unit tangents) to place
-    /// the t = 0.5 point on the approximation at the offset normal to
-    /// t = 0.5 on the generatrix.
-    fn one_point(&self, rec: &OffsetRec, utans: &[Vec2; 3]) -> (f64, f64) {
-        let ca = rec.utan0;
-        let cb = rec.utan1;
-        let z = utans[1] - 0.5 * (ca + cb);
-        let idet = (8.0 / 3.0) / ca.cross(cb);
-        let a = -z.dot(cb) * idet;
-        let b = z.dot(ca) * idet;
+    // Compute least squares error approximation, returning (a, b)
+    fn least_squares(&self, rec: &OffsetRec) -> (f64, f64) {
+        let c = CubicBez::new(
+            turn(rec.utan0).to_point(),
+            turn(rec.utan0).to_point(),
+            turn(rec.utan1).to_point(),
+            turn(rec.utan1).to_point(),
+        );
+        let mut aa = 0.0;
+        let mut ab = 0.0;
+        let mut ac = 0.0;
+        let mut bb = 0.0;
+        let mut bc = 0.0;
+        for i in 0..N_LSE {
+            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let n = turn(rec.utans[i]);
+            let p = c.eval(t).to_vec2();
+            let c_n = p.dot(n) - 1.0;
+            let c_t = p.cross(n);
+            let mt = 1.0 - t;
+            let a_n = 3.0 * mt * t * mt * rec.utan0.dot(n);
+            let a_t = 3.0 * mt * t * mt * rec.utan0.cross(n);
+            let b_n = 3.0 * mt * t * t * rec.utan1.dot(n);
+            let b_t = 3.0 * mt * t * t * rec.utan1.cross(n);
+            aa += a_n * a_n + BLEND * a_t * a_t;
+            ab += a_n * b_n + BLEND * a_t * b_t;
+            ac += a_n * c_n + BLEND * a_t * c_t;
+            bb += b_n * b_n + BLEND * b_t * b_t;
+            bc += b_n * c_n + BLEND * b_t * c_t;
+        }
+        let idet = 1.0 / (aa * bb - ab * ab);
+        let a = -idet * (ac * bb - ab * bc);
+        let b = -idet * (aa * bc - ac * ab);
         (a, b)
     }
 
-    /// Estimate the error of the curve approximation.
+    /// Evaluate error and also refine t values
     ///
-    /// The error estimate is good but not guaranteed to be conservative in
-    /// all cases. Experiment suggests underestimate can happen when there
-    /// is large curvature variation; perhaps a fudge factor based on that
-    /// would help.
-    ///
-    /// Also do a Newton step to refine the `ts` values, to place them in
-    /// the normal ray of the generatrix. The `ts` values are the parameter
-    /// values on the approximation corresponding to `OFFSET_TS` on the
-    /// generatrix.
-    fn est_error(
-        &self,
-        rec: &OffsetRec,
-        utans: &[Vec2; 3],
-        c_approx: CubicBez,
-        ts: &mut [f64; 3],
-    ) -> f64 {
+    /// Returns squared absolute distance error.
+    fn eval_err(&self, rec: &OffsetRec, c_approx: CubicBez, ts: &mut [f64; N_LSE]) -> f64 {
         let qa = c_approx.deriv();
         let mut max_err = 0.0;
-        for i in 0..3 {
-            let t = OFFSET_TS[i];
-            let utan = utans[i];
-            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
-            let p = self.c.eval(t_orig) + self.d * turn(utan);
+        for i in 0..N_LSE {
             let mut ta = ts[i];
-            // Newton step to place c_approx(ta) in normal ray
+            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
+            // TODO: probably should also store in rec, we always need this
+            let utan = rec.utans[i];
+            let p = self.c.eval(t_orig) + self.d * turn(utan);
+            // Newton step to refine ta value
             let pa = c_approx.eval(ta);
             let tana = qa.eval(ta).to_vec2();
             ta -= utan.dot(pa - p) / utan.dot(tana);
-            let dist_err = p.distance(c_approx.eval(ta));
-            let angle_err = qa.eval(ta).to_vec2().cross(utan);
-            let err = dist_err + 0.15 * angle_err.abs();
-            max_err = err.max(max_err);
             ts[i] = ta;
+            let dist_err_squared = p.distance_squared(c_approx.eval(ta));
+            // Note: would be very cheap to also include angle error
+            // let angle_err = qa.eval(ta).to_vec2().cross(utan);
+            // 0.15 is based off n=3, should decrease
+            // let err = dist_err + 0.15 * angle_err.abs();
+            max_err = dist_err_squared.max(max_err);
         }
         max_err
     }
 
-    /// Approximate offset curve using linear minmax.
-    fn linear_minmax(&self, rec: &OffsetRec, utans: &[Vec2; 3]) -> (f64, f64) {
-        // Bezier weights; 2 and 3 are by symmetry
-        const fn w0(t: f64) -> f64 {
-            (1.0 - t) * (1.0 - t) * (1.0 - t)
-        }
-        const fn w1(t: f64) -> f64 {
-            3.0 * (1.0 - t) * (1.0 - t) * t
-        }
-        const fn w01(t: f64) -> f64 {
-            w0(t) + w1(t)
-        }
-        let t0 = T1_FOR_OFFSET;
-        let t1 = 0.5;
-        let t2 = 1.0 - t0;
-        let ca = w1(t1) * rec.utan0.cross(utans[1]);
-        let ca1 = ca + w1(t0) * rec.utan0.cross(utans[0]);
-        let ca2 = ca + w1(t2) * rec.utan0.cross(utans[2]);
-        let cb = w1(t1) * rec.utan1.cross(utans[1]);
-        let cb1 = cb + w1(t2) * rec.utan1.cross(utans[0]);
-        let cb2 = cb + w1(t0) * rec.utan1.cross(utans[2]);
-        let cc = w01(t1) * (rec.utan0.dot(utans[1]) + rec.utan1.dot(utans[1])) - 2.0;
-        let cc1 = cc + w01(t0) * rec.utan0.dot(utans[0]) + w01(t2) * rec.utan1.dot(utans[0]);
-        let cc2 = cc + w01(t2) * rec.utan0.dot(utans[2]) + w01(t0) * rec.utan1.dot(utans[2]);
-        let idet = 1.0 / (ca1 * cb2 - ca2 * cb1);
-        let a = (cc1 * cb2 - cc2 * cb1) * idet;
-        let b = (ca1 * cc2 - ca2 * cc1) * idet;
-        (a, b)
-    }
-
-    /// Refine the minmax approximation, taking offset into account.
-    ///
-    /// Returns new (a, b) values
-    fn refine_minmax(
+    fn refine_least_squares(
         &self,
         rec: &OffsetRec,
-        utans: &[Vec2; 3],
         c_approx: CubicBez,
+        ts: [f64; N_LSE],
         a: f64,
         b: f64,
-        ts: [f64; 3],
     ) -> (f64, f64) {
-        let mut ca = [0.0; 3];
-        let mut cb = [0.0; 3];
-        let mut cc = [0.0; 3];
-        for i in 0..3 {
-            let t = OFFSET_TS[i];
-            let utan = utans[i];
-            let t_orig = rec.t0 + t * (rec.t1 - rec.t0);
-            let p = self.c.eval(t_orig);
-            let n = turn(utan);
-            let ta = ts[i];
-            let mta = 1. - ta;
-            let pa = c_approx.eval(ta);
-            ca[i] = 3. * mta * ta * mta * rec.utan0.dot(n);
-            cb[i] = 3. * mta * ta * ta * rec.utan1.dot(n);
-            cc[i] = (pa - p).dot(n) - self.d;
+        let mut aa = 0.0;
+        let mut ab = 0.0;
+        let mut ac = 0.0;
+        let mut bb = 0.0;
+        let mut bc = 0.0;
+        for i in 0..N_LSE {
+            let t_orig = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let p_orig = self.c.eval(rec.t0 + t_orig * (rec.t1 - rec.t0));
+            let n = turn(rec.utans[i]);
+            let p_offset = p_orig + self.d * n;
+            let t = ts[i];
+            // This is computed in eval_err, should probably retain
+            let err_vec = c_approx.eval(t) - p_offset;
+            let c_n = err_vec.dot(n);
+            let c_t = err_vec.cross(n);
+            let mt = 1.0 - t;
+            let a_n = 3.0 * mt * t * mt * rec.utan0.dot(n);
+            let a_t = 3.0 * mt * t * mt * rec.utan0.cross(n);
+            let b_n = 3.0 * mt * t * t * rec.utan1.dot(n);
+            let b_t = 3.0 * mt * t * t * rec.utan1.cross(n);
+            aa += a_n * a_n + BLEND * a_t * a_t;
+            ab += a_n * b_n + BLEND * a_t * b_t;
+            ac += a_n * c_n + BLEND * a_t * c_t;
+            bb += b_n * b_n + BLEND * b_t * b_t;
+            bc += b_n * c_n + BLEND * b_t * c_t;
         }
-        let ca01 = ca[0] + ca[1];
-        let cb01 = cb[0] + cb[1];
-        let cc01 = cc[0] + cc[1];
-        let ca12 = ca[1] + ca[2];
-        let cb12 = cb[1] + cb[2];
-        let cc12 = cc[1] + cc[2];
-        let det = self.d * (ca01 * cb12 - ca12 * cb01);
-        let da = (cc01 * cb12 - cc12 * cb01) / det;
-        let db = (ca01 * cc12 - ca12 * cc01) / det;
-        (a - da, b - db)
+        let idet = 1.0 / (self.d * (aa * bb - ab * ab));
+        let delta_a = idet * (ac * bb - ab * bc);
+        let delta_b = idet * (aa * bc - ac * ab);
+        (a - delta_a, b - delta_b)
     }
 
     // Note: probably want to return unit tangent for robustness, rather
@@ -401,6 +363,38 @@ impl CubicOffset {
         } else {
             //web_sys::console::log_1(&format!("{}..{} -> midpoint", rec.t0, rec.t1).into());
             0.5 * (rec.t0 + rec.t1)
+        }
+    }
+}
+
+impl OffsetRec {
+    fn new(
+        co: &CubicOffset,
+        t0: f64,
+        t1: f64,
+        utan0: Vec2,
+        utan1: Vec2,
+        cusp0: f64,
+        cusp1: f64,
+        depth: usize,
+    ) -> Self {
+        let mut utans = [Vec2::new(0.0, 0.0); N_LSE];
+        let dt = (t1 - t0) * (1.0 / (N_LSE + 1) as f64);
+        for i in 0..N_LSE {
+            let t = t0 + (i + 1) as f64 * dt;
+            // TODO: deal with zero derivative
+            let utan = co.q.eval(t).to_vec2().normalize();
+            utans[i] = utan;
+        }
+        OffsetRec {
+            t0,
+            t1,
+            utan0,
+            utan1,
+            cusp0,
+            cusp1,
+            depth,
+            utans,
         }
     }
 }

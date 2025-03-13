@@ -124,7 +124,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let mut soln_lse = perturb::OffsetSolutionLse::from_a_b(a2, b2, d);
     let c_lse = soln_lse.apply(&co);
     let err_lse = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
-    for _ in 0..1 {
+    for _ in 0..10 {
         let _err = soln_lse.eval_err(&co);
         soln_lse.refine_lse(&co);
     }
