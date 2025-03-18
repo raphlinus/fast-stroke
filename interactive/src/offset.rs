@@ -5,7 +5,7 @@
 
 use kurbo::{
     common::{solve_itp, solve_quadratic},
-    BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2,
+    BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Shape, Vec2,
 };
 
 use crate::cusp::CuspAnalysis;
@@ -56,7 +56,7 @@ const CUSP_EPSILON: f64 = 1e-12;
 /// Maximum recursion depth
 ///
 /// Perhaps should be configurable.
-const MAX_DEPTH: usize = 8;
+const MAX_DEPTH: usize = 4;
 
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let mut result = BezPath::new();
@@ -149,6 +149,8 @@ impl CubicOffset {
             c_approx = c_approx2;
             err = err2;
         }
+        let c_subseg = self.c.subsegment(rec.t0..rec.t1);
+        web_sys::console::log_1(&c_subseg.into_path(0.0).to_svg().into());
         web_sys::console::log_1(
             &format!(
                 "{}{:.3}..{:.3} init {err_init:.6} refined {err2:.6}",

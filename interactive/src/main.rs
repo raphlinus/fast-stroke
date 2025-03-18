@@ -120,11 +120,23 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_one = c_one.to_path(0.0);
     let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
 
-    let (a2, b2) = perturb::least_squares(c);
+    let q0 = co.q.p0.to_vec2();
+    let q2 = co.q.p2.to_vec2();
+    let th = q2.cross(q0).atan2(q2.dot(q0));
+    let (a2_lse, b2_lse) = perturb::least_squares(c);
+    let scale = (1. / 3.) / (0.5 * th).cos();
+    let a2_arc = scale * th / q0.length();
+    let b2_arc = -scale * th / q2.length();
+    let arc_weight = d * th.abs();
+    let lse_weight = c.p0.distance(c.p3);
+    let blend = arc_weight / (arc_weight + lse_weight);
+    web_sys::console::log_1(&format!("th = {th} blend = {blend}").into());
+    let a2 = a2_arc * blend + a2_lse * (1.0 - blend);
+    let b2 = b2_arc * blend + b2_lse * (1.0 - blend);
     let mut soln_lse = perturb::OffsetSolutionLse::from_a_b(a2, b2, d);
     let c_lse = soln_lse.apply(&co);
     let err_lse = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
-    for _ in 0..10 {
+    for _ in 0..1 {
         let _err = soln_lse.eval_err(&co);
         soln_lse.refine_lse(&co);
     }
