@@ -56,7 +56,7 @@ const CUSP_EPSILON: f64 = 1e-12;
 /// Maximum recursion depth
 ///
 /// Perhaps should be configurable.
-const MAX_DEPTH: usize = 4;
+const MAX_DEPTH: usize = 8;
 
 pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let mut result = BezPath::new();
@@ -259,8 +259,21 @@ impl CubicOffset {
             bc += b_n * c_n + BLEND * b_t * c_t;
         }
         let idet = 1.0 / (aa * bb - ab * ab);
-        let a = -idet * (ac * bb - ab * bc);
-        let b = -idet * (aa * bc - ac * ab);
+        let a_lse = -idet * (ac * bb - ab * bc);
+        let b_lse = -idet * (aa * bc - ac * ab);
+
+        // Cusp / very thick case
+        let th = rec.utan1.cross(rec.utan0).atan2(rec.utan1.dot(rec.utan0));
+        let arc_weight = self.d * th.abs();
+        let lse_weight = self.c.eval(rec.t0).distance(self.c.eval(rec.t1));
+        let blend = arc_weight / (arc_weight + lse_weight);
+        let a_arc = (1. / 3.) / (0.25 * th).cos() * th;
+        let b_arc = -a_arc;
+        let a = a_arc * blend + a_lse * (1.0 - blend);
+        let b = b_arc * blend + b_lse * (1.0 - blend);
+
+        //let a = a_lse;
+        //let b = b_lse;
         (a, b)
     }
 
