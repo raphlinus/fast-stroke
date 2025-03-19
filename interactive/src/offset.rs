@@ -12,7 +12,7 @@ use crate::cusp::CuspAnalysis;
 
 const N_LSE: usize = 8;
 
-const BLEND: f64 = 1e-3;
+const BLEND: f64 = 1e-2;
 
 /// Info that's constant for the curve.
 struct CubicOffset {
@@ -143,6 +143,8 @@ impl CubicOffset {
         let mut err = err_init;
         // speed/quality tradeoff: skip refinement if in tolerance
         let (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a, b);
+        self.eval_err(rec, c_approx, &mut ts);
+        let (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a2, b2);
         let c_approx2 = self.apply(rec, a2, b2);
         let err2 = self.eval_err(rec, c_approx2, &mut ts);
         if err2 < err {
@@ -267,7 +269,7 @@ impl CubicOffset {
         let arc_weight = self.d * th.abs();
         let lse_weight = self.c.eval(rec.t0).distance(self.c.eval(rec.t1));
         let blend = arc_weight / (arc_weight + lse_weight);
-        let a_arc = (1. / 3.) / (0.25 * th).cos() * th;
+        let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * th;
         let b_arc = -a_arc;
         let a = a_arc * blend + a_lse * (1.0 - blend);
         let b = b_arc * blend + b_lse * (1.0 - blend);
