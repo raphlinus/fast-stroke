@@ -534,6 +534,20 @@ pub fn least_squares(c: CubicBez) -> (f64, f64) {
     (a_scaled, b_scaled)
 }
 
+/// Compute solution based on simply drawing an arc approximation
+pub fn draw_arc(c: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let co = CurveOffset::new(c);
+    let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
+    let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
+    let b_arc = -a_arc;
+    let a_scaled = a_arc / co.q.p0.to_vec2().length();
+    let b_scaled = b_arc / co.q.p2.to_vec2().length();
+    (a_scaled, b_scaled)
+}
+
 impl OffsetSolution {
     pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
         let ts = OFFSET_TS;

@@ -67,30 +67,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
-    // Always try minmax solution
-    let (a, b) = perturb::linear_minmax(c);
-    let mut soln_minmax = perturb::OffsetSolution::from_a_b(a, b, d);
-    _ = soln_minmax.refine_ts(&co);
-    soln_minmax.refine_minmax(&co);
-    let [y1_0, y1_1, y1_2] = soln_minmax.refine_ts(&co);
-    let err_minmax = y1_0.max(y1_1).max(y1_2);
-    let mut best_soln = &soln_minmax;
-    let mut best_err = err_minmax;
+    let (a, b) = perturb::draw_arc(c);
+    let soln_arc = perturb::OffsetSolution::from_a_b(a, b, d);
 
-    // try linear_center; can skip in S case
-    let (a1, b1) = perturb::one_point(c);
-    let mut soln_center = perturb::OffsetSolution::from_a_b(a1, b1, d);
-    let [y2_0, y2_1, y2_2] = soln_center.refine_ts(&co);
-    let err_center = y2_0.max(y2_1).max(y2_2);
-    if err_center < best_err {
-        best_soln = &soln_center;
-        best_err = err_center;
-    }
-    let [y0, y1, y2] = if err_minmax < err_center {
-        [y1_0, y1_1, y1_2]
-    } else {
-        [y2_0, y2_1, y2_2]
-    };
+    let best_soln = &soln_arc;
 
     /*
     let (a1, b1) = perturb::one_point(c);
@@ -116,9 +96,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c_one_point2 = co.apply(a3, b3, d);
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
     */
-    let c_one = best_soln.apply(&co);
-    let path_one = c_one.to_path(0.0);
-    let err_one = perturb::plot(&perturb::error_by_rays(c, d, c_one));
+    let c_arc = best_soln.apply(&co);
+    let path_arc = c_arc.to_path(0.0);
+    let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
 
     let q0 = co.q.p0.to_vec2();
     let q2 = co.q.p2.to_vec2();
@@ -157,7 +137,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let svg_el = svg(g((
         Line::new(state.p0, state.p1).stroke(Color::BLUE, stroke.clone()),
         Line::new(state.p2, state.p3).stroke(Color::BLUE, stroke.clone()),
-        Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
+        //Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
         /*
         Line::new((100., 200. - y0), (267., 200. - y0)).stroke(Color::LIME, stroke.clone()),
         Line::new((100., 200. + y0), (267., 200. + y0)).stroke(Color::LIME, stroke.clone()),
@@ -171,11 +151,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_offset
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        path_one
+        path_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         path_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
-        err_one
+        err_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         err_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
