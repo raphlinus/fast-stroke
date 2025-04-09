@@ -73,7 +73,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_arc = c_arc.to_path(0.0);
     let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
     for _ in 0..1 {
-        let _err = soln_arc_lse.eval_err(&co);
+        soln_arc_lse.newton_step_rev(&co);
         soln_arc_lse.refine_lse(&co);
     }
     let c_arc_lse = soln_arc_lse.apply(&co);
@@ -154,18 +154,19 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
-            .stroke(Color::YELLOW, stroke_thin.clone())
+            .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
         path_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         path_arc_lse
-            .stroke(Color::LIGHT_GOLDENROD_YELLOW, stroke_thin.clone())
+            .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        path_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
+        //path_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
         err_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        /*
         err_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
         err_lse_refined
             .stroke(Color::DODGER_BLUE, stroke_thin.clone())
@@ -173,6 +174,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_lse_refined2
             .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
             .fill(NONE),
+            */
         err_arc_lse_refined
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),

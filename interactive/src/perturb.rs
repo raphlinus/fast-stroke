@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 10.0;
+const ERROR_SCALE: f64 = 1.0;
 const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
@@ -49,6 +49,8 @@ pub struct OffsetSolutionLse {
     b: f64,
     // t values on approximation corresponding to T1_FOR_OFFSET, 1/2 and 1 - T1_FOR_OFFSET
     ts: [f64; LSE_N],
+    // t values on generatrix
+    ts_rev: [f64; LSE_N],
 }
 
 impl CurveOffset {
@@ -143,6 +145,20 @@ impl CurveOffset {
         let error = tan.dot(pa - p);
         let qa = ca.deriv();
         ta - error / tan.dot(qa.eval(ta).to_vec2())
+    }
+
+    /// Do a Newton step to refine a t value on the generatrix.
+    ///
+    /// Given curve parameters, a t value on the generatrix, and an
+    /// approximate t value on the approximation, refine the former.
+    fn newton_step_rev_t(&self, a: f64, b: f64, d: f64, t: f64, ta: f64) -> f64 {
+        let ca = self.apply(a, b, d);
+        let p = self.c.eval(t);
+        let qa = ca.deriv();
+        let tan = qa.eval(ta).to_vec2();
+        let pa = ca.eval(ta);
+        let error = tan.dot(pa - p);
+        t + error / tan.dot(self.q.eval(t).to_vec2())
     }
 }
 
@@ -624,7 +640,14 @@ impl OffsetSolutionLse {
         for i in 0..LSE_N {
             ts[i] = (i + 1) as f64 / (LSE_N + 1) as f64;
         }
-        Self { d, a, b, ts }
+        let ts_rev = ts;
+        Self {
+            d,
+            a,
+            b,
+            ts,
+            ts_rev,
+        }
     }
 
     pub fn apply(&self, co: &CurveOffset) -> CubicBez {
@@ -647,17 +670,19 @@ impl OffsetSolutionLse {
         let utan0 = co.q.p0.to_vec2().normalize();
         let utan1 = co.q.p2.to_vec2().normalize();
         let c_approx = self.apply(co);
+        let q_approx = c_approx.deriv();
         for i in 0..LSE_N {
-            let t_gen = (i + 1) as f64 / (LSE_N + 1) as f64;
+            let t_approx = (i + 1) as f64 / (LSE_N + 1) as f64;
             // Newton step is done in eval_err
             //let t = co.newton_step_t(self.a, self.b, self.d, t_gen, self.ts[i]);
             //self.ts[i] = t;
             let t = self.ts[i];
-            let utan = co.q.eval(t_gen).to_vec2().normalize();
-            let p = co.c.eval(t_gen);
+            // May need to flip sign inside cusp
+            let utan = q_approx.eval(t_approx).to_vec2().normalize();
+            let p = co.c.eval(t);
             let n = turn(utan);
             let p_off = p + self.d * n;
-            let err_vec = c_approx.eval(t) - p_off;
+            let err_vec = c_approx.eval(t_approx) - p_off;
             let c_n = err_vec.dot(n);
             let c_t = err_vec.cross(n);
             let mt = 1.0 - t;
@@ -737,6 +762,15 @@ impl OffsetSolutionLse {
         err /= self.d.powi(2);
         // web_sys::console::log_1(&format!("err = {err:.8}").into());
         err
+    }
+
+    // Do the Newton step to refine generatrix t's
+    pub fn newton_step_rev(&mut self, co: &CurveOffset) {
+        for i in 0..LSE_N {
+            let ta = (i + 1) as f64 / (LSE_N + 1) as f64;
+            let t = co.newton_step_rev_t(self.a, self.b, self.d, self.ts_rev[i], ta);
+            self.ts_rev[i] = t;
+        }
     }
 }
 
