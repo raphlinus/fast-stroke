@@ -11,6 +11,7 @@ use xilem_web::{
 };
 
 mod cusp;
+mod evolute;
 mod offset;
 mod perturb;
 
@@ -137,6 +138,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let tolerance = 0.25;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
+    let evo = evolute::evolute_hacky_approx(c);
+    let evc = evolute::evolute_approx(c);
+
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
     let svg_el = svg(g((
@@ -177,6 +181,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             */
         err_arc_lse_refined
             .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
+        evo.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
+        evc.stroke(Color::BLUE_VIOLET, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
