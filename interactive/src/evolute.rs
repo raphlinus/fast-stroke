@@ -7,6 +7,8 @@ use kurbo::{
 
 const CUSP_EPSILON: f64 = 1e-12;
 
+const N_LSE: usize = 8;
+
 struct CubicEvolute {
     c: CubicBez,
     q: QuadBez,
@@ -55,6 +57,14 @@ impl CubicEvolute {
         self.c.eval(t) - n * self.radius(t)
     }
 
+    fn apply(&self, rec: &EvoluteRec, a: f64, b: f64) -> CubicBez {
+        let n0 = turn(self.q.eval(rec.t0).to_vec2().normalize()) * rec.dr0.signum();
+        let n1 = turn(self.q.eval(rec.t1).to_vec2().normalize()) * rec.dr1.signum();
+        let p1 = rec.p0 - a * n0;
+        let p2 = rec.p1 + b * n1;
+        CubicBez::new(rec.p0, p1, p2, rec.p1)
+    }
+
     fn evolute_rec(&self, rec: &EvoluteRec, path: &mut BezPath) {
         if rec.dr0 * rec.dr1 < 0.0 {
             let a = rec.t0;
@@ -72,11 +82,8 @@ impl CubicEvolute {
         }
         let chord = rec.p0.distance(rec.p1);
         let scale = (1. / 3.) * chord;
-        let n0 = turn(self.q.eval(rec.t0).to_vec2().normalize()) * scale * rec.dr0.signum();
-        let n1 = turn(self.q.eval(rec.t1).to_vec2().normalize()) * scale * rec.dr1.signum();
-        let p1 = rec.p0 - n0;
-        let p2 = rec.p1 + n1;
-        path.curve_to(p1, p2, rec.p1);
+        let ca = self.apply(rec, scale, scale);
+        path.curve_to(ca.p1, ca.p2, ca.p3);
     }
 
     fn subdivide(
