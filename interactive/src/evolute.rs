@@ -7,6 +7,8 @@ use kurbo::{
 
 const CUSP_EPSILON: f64 = 1e-12;
 
+const MAX_DEPTH: usize = 8;
+
 const N_LSE: usize = 8;
 
 const BLEND: f64 = 1e-2;
@@ -17,10 +19,11 @@ struct CubicEvolute {
     c0: f64,
     c1: f64,
     c2: f64,
+    tolerance: f64,
 }
 
 impl CubicEvolute {
-    fn new(c: CubicBez) -> Self {
+    fn new(c: CubicBez, tolerance: f64) -> Self {
         let q = c.deriv();
         let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
         let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
@@ -31,6 +34,7 @@ impl CubicEvolute {
             c0: 2.0 * p1xp0,
             c1: 2.0 * p2xp0 - 4.0 * p1xp0,
             c2: 2.0 * p2xp1 - 2.0 * p2xp0 + 2.0 * p1xp0,
+            tolerance,
         }
     }
 
@@ -101,7 +105,16 @@ impl CubicEvolute {
                 break;
             }
         }
-        path.curve_to(ca.p1, ca.p2, ca.p3);
+        if rec.depth < MAX_DEPTH && max_err > self.tolerance.powi(2) {
+            let t = 0.5 * (rec.t0 + rec.t1);
+            let p = self.eval(t);
+            let dr = self.radius_deriv(t);
+            // possible robustness TODO: handle case where deriv is very
+            // near zero; this would be a cusp-style subdivision
+            self.subdivide(rec, path, t, p, dr, dr);
+        } else {
+            path.curve_to(ca.p1, ca.p2, ca.p3);
+        }
     }
 
     fn subdivide(
@@ -123,6 +136,7 @@ impl CubicEvolute {
             utan1: utan * dr_minus.signum(),
             dr0: rec.dr0,
             dr1: dr_minus,
+            depth: rec.depth + 1,
         };
         self.evolute_rec(&rec0, path);
         let rec1 = EvoluteRec {
@@ -134,6 +148,7 @@ impl CubicEvolute {
             utan1: rec.utan1,
             dr0: dr_plus,
             dr1: rec.dr1,
+            depth: rec.depth + 1,
         };
         self.evolute_rec(&rec1, path);
     }
@@ -209,7 +224,7 @@ impl CubicEvolute {
 
 // Approximate an evolute by sampling.
 pub fn evolute_hacky_approx(c: CubicBez) -> BezPath {
-    let ev = CubicEvolute::new(c);
+    let ev = CubicEvolute::new(c, 1e9);
     let mut path = BezPath::new();
     const N: usize = 50;
     for i in 0..=N {
@@ -230,7 +245,7 @@ pub fn evolute_hacky_approx(c: CubicBez) -> BezPath {
 // Likely we should skip this and go to subdivision. Subdivide at curvature extrema
 // in the source curve (these are cusps in the evolute).
 pub fn evolute_approx_cubic(c: CubicBez) -> CubicBez {
-    let ev = CubicEvolute::new(c);
+    let ev = CubicEvolute::new(c, 1e9);
     let p0 = ev.eval(0.0);
     let p3 = ev.eval(1.0);
     let chord = p0.distance(p3);
@@ -252,10 +267,11 @@ struct EvoluteRec {
     // derivative of radius. This is in the rec because it vanishes at subdivision points
     dr0: f64,
     dr1: f64,
+    depth: usize,
 }
 
-pub fn evolute_approx(c: CubicBez) -> BezPath {
-    let ev = CubicEvolute::new(c);
+pub fn evolute_approx(c: CubicBez, tolerance: f64) -> BezPath {
+    let ev = CubicEvolute::new(c, tolerance);
     let mut path = BezPath::new();
     let t0 = 0.0;
     let t1 = 1.0;
@@ -276,6 +292,7 @@ pub fn evolute_approx(c: CubicBez) -> BezPath {
         utan1,
         dr0,
         dr1,
+        depth: 0,
     };
     ev.evolute_rec(&rec, &mut path);
     path
