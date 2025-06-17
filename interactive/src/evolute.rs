@@ -83,8 +83,8 @@ impl CubicEvolute {
         let chord = rec.p0.distance(rec.p1);
         let scale = (1. / 3.) * chord;
         let (mut a, mut b) = (-scale, scale);
-        let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
-        let mut ts: [f64; N_LSE] = core::array::from_fn(|i| rec.t0 + (i + 1) as f64 * dt);
+        let dt = 1.0 / (N_LSE + 1) as f64;
+        let mut ts: [f64; N_LSE] = core::array::from_fn(|i| (i + 1) as f64 * dt);
         //web_sys::console::log_1(&format!("pre: {ts:?}").into());
         let mut ca = self.apply(rec, a, b);
         let mut max_err = self.eval_err(rec, ca, &mut ts);
@@ -142,27 +142,25 @@ impl CubicEvolute {
     ///
     /// Returns squared absolute difference error.
     ///
-    /// Adjust t values on the source curve.
-    fn eval_err(&self, _rec: &EvoluteRec, c_approx: CubicBez, ts: &mut [f64; N_LSE]) -> f64 {
+    /// Adjust t values on the approximation.
+    fn eval_err(&self, rec: &EvoluteRec, c_approx: CubicBez, ts: &mut [f64; N_LSE]) -> f64 {
         let qa = c_approx.deriv();
         let mut max_err = 0.0;
+        let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
         for i in 0..N_LSE {
-            let t_approx = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
-            let t_orig = ts[i];
+            let t_orig = rec.t0 + (i + 1) as f64 * dt;
+            let t_approx = ts[i];
             let p = self.eval(t_orig);
             let pa = c_approx.eval(t_approx);
             //web_sys::console::log_1(&format!("p={p:?}@{t_orig} pa={pa:?}@{t_approx}").into());
             let tana = qa.eval(t_approx).to_vec2();
-            const DT: f64 = 1e-6;
-            // Numerical differentiation of evolute; might be a good
-            // idea to replace with analytical
-            let p_plus = self.eval(t_orig + DT);
-            let dp_dt = (p_plus - p) * (1.0 / DT);
-            let error = tana.dot(pa - p);
-            let t_orig_new = t_orig + error / tana.dot(dp_dt);
-            ts[i] = t_orig_new;
-            let p_new = self.eval(t_orig_new);
-            let dist_err_squared = p_new.distance_squared(pa);
+            // Tangent of evolute is normal of source curve.
+            let tan = turn(self.q.eval(t_orig).to_vec2());
+            let error = tan.dot(pa - p);
+            let t_approx_new = t_approx - error / tan.dot(tana);
+            ts[i] = t_approx_new;
+            let pa_new = c_approx.eval(t_approx_new);
+            let dist_err_squared = p.distance_squared(pa_new);
             max_err = dist_err_squared.max(max_err);
         }
         max_err
@@ -181,10 +179,11 @@ impl CubicEvolute {
         let mut ac = 0.0;
         let mut bb = 0.0;
         let mut bc = 0.0;
+        let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
         for i in 0..N_LSE {
-            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let t_orig = rec.t0 + (i + 1) as f64 * dt;
             // n is tangent to source curve, so normal to evolute
-            let t_orig = ts[i];
+            let t = ts[i];
             let n = self.q.eval(t_orig).to_vec2().normalize();
             let p_orig = self.eval(t_orig);
             let err_vec = c_approx.eval(t) - p_orig;
