@@ -289,7 +289,6 @@ impl CubicOffset {
         let mut max_err = 0.0;
         for i in 0..N_LSE {
             let mut ta = ts[i];
-            // TODO: probably should also store in rec, we always need this
             let utan = rec.utans[i];
             let p = rec.p_offset[i];
             // Newton step to refine ta value

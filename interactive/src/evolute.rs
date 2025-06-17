@@ -9,6 +9,8 @@ const CUSP_EPSILON: f64 = 1e-12;
 
 const N_LSE: usize = 8;
 
+const BLEND: f64 = 1e-2;
+
 struct CubicEvolute {
     c: CubicBez,
     q: QuadBez,
@@ -58,10 +60,8 @@ impl CubicEvolute {
     }
 
     fn apply(&self, rec: &EvoluteRec, a: f64, b: f64) -> CubicBez {
-        let n0 = turn(self.q.eval(rec.t0).to_vec2().normalize()) * rec.dr0.signum();
-        let n1 = turn(self.q.eval(rec.t1).to_vec2().normalize()) * rec.dr1.signum();
-        let p1 = rec.p0 - a * n0;
-        let p2 = rec.p1 + b * n1;
+        let p1 = rec.p0 + a * rec.utan0;
+        let p2 = rec.p1 + b * rec.utan1;
         CubicBez::new(rec.p0, p1, p2, rec.p1)
     }
 
@@ -82,7 +82,25 @@ impl CubicEvolute {
         }
         let chord = rec.p0.distance(rec.p1);
         let scale = (1. / 3.) * chord;
-        let ca = self.apply(rec, scale, scale);
+        let (mut a, mut b) = (-scale, scale);
+        let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
+        let mut ts: [f64; N_LSE] = core::array::from_fn(|i| rec.t0 + (i + 1) as f64 * dt);
+        //web_sys::console::log_1(&format!("pre: {ts:?}").into());
+        let mut ca = self.apply(rec, a, b);
+        let mut max_err = self.eval_err(rec, ca, &mut ts);
+        for i in 0..5 {
+            let (a2, b2) = self.refine_least_squares(rec, ca, &ts, a, b);
+            let ca2 = self.apply(rec, a2, b2);
+            let err = self.eval_err(rec, ca2, &mut ts);
+            web_sys::console::log_1(&format!("{i}: {err}?{max_err}").into());
+            if err < max_err {
+                (a, b) = (a2, b2);
+                ca = ca2;
+                max_err = err;
+            } else {
+                break;
+            }
+        }
         path.curve_to(ca.p1, ca.p2, ca.p3);
     }
 
@@ -95,11 +113,14 @@ impl CubicEvolute {
         dr_minus: f64,
         dr_plus: f64,
     ) {
+        let utan = turn(self.q.eval(t).to_vec2()).normalize();
         let rec0 = EvoluteRec {
             t0: rec.t0,
             t1: t,
             p0: rec.p0,
             p1: p,
+            utan0: rec.utan0,
+            utan1: utan * dr_minus.signum(),
             dr0: rec.dr0,
             dr1: dr_minus,
         };
@@ -109,10 +130,81 @@ impl CubicEvolute {
             t1: rec.t1,
             p0: p,
             p1: rec.p1,
+            utan0: utan * dr_plus.signum(),
+            utan1: rec.utan1,
             dr0: dr_plus,
             dr1: rec.dr1,
         };
         self.evolute_rec(&rec1, path);
+    }
+
+    /// Evaluate error and refine t values.
+    ///
+    /// Returns squared absolute difference error.
+    ///
+    /// Adjust t values on the source curve.
+    fn eval_err(&self, _rec: &EvoluteRec, c_approx: CubicBez, ts: &mut [f64; N_LSE]) -> f64 {
+        let qa = c_approx.deriv();
+        let mut max_err = 0.0;
+        for i in 0..N_LSE {
+            let t_approx = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let t_orig = ts[i];
+            let p = self.eval(t_orig);
+            let pa = c_approx.eval(t_approx);
+            //web_sys::console::log_1(&format!("p={p:?}@{t_orig} pa={pa:?}@{t_approx}").into());
+            let tana = qa.eval(t_approx).to_vec2();
+            const DT: f64 = 1e-6;
+            // Numerical differentiation of evolute; might be a good
+            // idea to replace with analytical
+            let p_plus = self.eval(t_orig + DT);
+            let dp_dt = (p_plus - p) * (1.0 / DT);
+            let error = tana.dot(pa - p);
+            let t_orig_new = t_orig + error / tana.dot(dp_dt);
+            ts[i] = t_orig_new;
+            let p_new = self.eval(t_orig_new);
+            let dist_err_squared = p_new.distance_squared(pa);
+            max_err = dist_err_squared.max(max_err);
+        }
+        max_err
+    }
+
+    fn refine_least_squares(
+        &self,
+        rec: &EvoluteRec,
+        c_approx: CubicBez,
+        ts: &[f64; N_LSE],
+        a: f64,
+        b: f64,
+    ) -> (f64, f64) {
+        let mut aa = 0.0;
+        let mut ab = 0.0;
+        let mut ac = 0.0;
+        let mut bb = 0.0;
+        let mut bc = 0.0;
+        for i in 0..N_LSE {
+            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            // n is tangent to source curve, so normal to evolute
+            let t_orig = ts[i];
+            let n = self.q.eval(t_orig).to_vec2().normalize();
+            let p_orig = self.eval(t_orig);
+            let err_vec = c_approx.eval(t) - p_orig;
+            let c_n = err_vec.dot(n);
+            let c_t = err_vec.cross(n);
+            let mt = 1.0 - t;
+            let a_n = 3.0 * mt * t * mt * rec.utan0.dot(n);
+            let a_t = 3.0 * mt * t * mt * rec.utan0.cross(n);
+            let b_n = 3.0 * mt * t * t * rec.utan1.dot(n);
+            let b_t = 3.0 * mt * t * t * rec.utan1.cross(n);
+            aa += a_n * a_n + BLEND * a_t * a_t;
+            ab += a_n * b_n + BLEND * a_t * b_t;
+            ac += a_n * c_n + BLEND * a_t * c_t;
+            bb += b_n * b_n + BLEND * b_t * b_t;
+            bc += b_n * c_n + BLEND * b_t * c_t;
+        }
+        let idet = 1.0 / (aa * bb - ab * ab);
+        let delta_a = idet * (ac * bb - ab * bc);
+        let delta_b = idet * (aa * bc - ac * ab);
+        (a - delta_a, b - delta_b)
     }
 }
 
@@ -156,6 +248,8 @@ struct EvoluteRec {
     t1: f64,
     p0: Point,
     p1: Point,
+    utan0: Vec2,
+    utan1: Vec2,
     // derivative of radius. This is in the rec because it vanishes at subdivision points
     dr0: f64,
     dr1: f64,
@@ -171,11 +265,16 @@ pub fn evolute_approx(c: CubicBez) -> BezPath {
     path.move_to(p0);
     let dr0 = ev.radius_deriv(t0);
     let dr1 = ev.radius_deriv(t1);
+    let q = c.deriv();
+    let utan0 = turn(q.p0.to_vec2()).normalize() * dr0.signum();
+    let utan1 = turn(q.p2.to_vec2()).normalize() * dr1.signum();
     let rec = EvoluteRec {
         t0,
         t1,
         p0,
         p1,
+        utan0,
+        utan1,
         dr0,
         dr1,
     };
