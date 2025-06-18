@@ -106,40 +106,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_one_point2 = perturb::plot(&perturb::error_by_rays(c, d, c_one_point2));
     */
 
-    let q0 = co.q.p0.to_vec2();
-    let q2 = co.q.p2.to_vec2();
-    let th = q2.cross(q0).atan2(q2.dot(q0));
-    let (a2_lse, b2_lse) = perturb::least_squares(c);
-    let scale = (2. / 3.) / (1.0 + (0.5 * th).cos());
-    let a2_arc = scale * 2.0 * (0.5 * th).sin() / q0.length();
-    let b2_arc = -scale * 2.0 * (0.5 * th).sin() / q2.length();
-    let arc_weight = d * th.abs();
-    let lse_weight = c.p0.distance(c.p3);
-    let blend = arc_weight / (arc_weight + lse_weight);
-    web_sys::console::log_1(&format!("th = {th} blend = {blend}").into());
-    let a2 = a2_arc * blend + a2_lse * (1.0 - blend);
-    let b2 = b2_arc * blend + b2_lse * (1.0 - blend);
-    let mut soln_lse = perturb::OffsetSolutionLse::from_a_b(a2, b2, d);
-    let c_lse = soln_lse.apply(&co);
-    let err_lse = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
-    for _ in 0..1 {
-        let _err = soln_lse.eval_err(&co);
-        soln_lse.refine_lse(&co);
-    }
-    let c_lse = soln_lse.apply(&co);
-    let err_lse_refined = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
-    let _err = soln_lse.eval_err(&co);
-    soln_lse.refine_lse(&co);
-    let c_lse = soln_lse.apply(&co);
-    let path_lse = c_lse.to_path(0.0);
-    let err_lse_refined2 = perturb::plot(&perturb::error_by_rays(c, d, c_lse));
-    let _err = soln_lse.eval_err(&co);
-
-    let tolerance = 2.0;
+    let tolerance = 0.25;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
-    let evo = evolute::evolute_hacky_approx(c);
-    let evc = evolute::evolute_approx(c, tolerance);
+    //let evo = evolute::evolute_hacky_approx(c);
+    //let evc = evolute::evolute_approx(c, tolerance);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -160,6 +131,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_offset
             .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
+        /*
         path_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
@@ -170,20 +142,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        /*
-        err_lse.stroke(Color::LIME, stroke_thin.clone()).fill(NONE),
-        err_lse_refined
-            .stroke(Color::DODGER_BLUE, stroke_thin.clone())
-            .fill(NONE),
-        err_lse_refined2
-            .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
-            .fill(NONE),
-            */
         err_arc_lse_refined
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        evo.stroke(Color::GREEN, stroke_thin.clone()).fill(NONE),
-        evc.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
+        */
+        //evo.stroke(Color::GREEN, stroke_thin.clone()).fill(NONE),
+        //evc.stroke(Color::RED, stroke_thin.clone()).fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),

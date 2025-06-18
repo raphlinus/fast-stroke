@@ -133,18 +133,19 @@ impl CubicOffset {
             self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
             return;
         }
-        let (a, b) = self.least_squares(rec);
-        let mut ts = [0.0; N_LSE];
-        for i in 0..N_LSE {
-            ts[i] = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
-        }
+        let (a, b) = self.draw_arc(rec);
+        let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
+        // These represent t values on the source curve.
+        let mut ts = core::array::from_fn(|i| rec.t0 + (i + 1) as f64 * dt);
         let mut c_approx = self.apply(rec, a, b);
         let err_init = self.eval_err(rec, c_approx, &mut ts);
         let mut err = err_init;
         // speed/quality tradeoff: skip refinement if in tolerance
         let (mut a2, mut b2) = self.refine_least_squares(rec, c_approx, ts, a, b);
         for _ in 0..1 {
-            self.eval_err(rec, c_approx, &mut ts);
+            let c_approx = self.apply(rec, a2, b2);
+            let err = self.eval_err(rec, c_approx, &mut ts);
+            web_sys::console::log_1(&format!("{err} {ts:?}").into());
             (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a2, b2);
         }
         let c_approx2 = self.apply(rec, a2, b2);
@@ -153,8 +154,8 @@ impl CubicOffset {
             c_approx = c_approx2;
             err = err2;
         }
-        let c_subseg = self.c.subsegment(rec.t0..rec.t1);
-        web_sys::console::log_1(&c_subseg.into_path(0.0).to_svg().into());
+        //let c_subseg = self.c.subsegment(rec.t0..rec.t1);
+        //web_sys::console::log_1(&c_subseg.into_path(0.0).to_svg().into());
         web_sys::console::log_1(
             &format!(
                 "{}{:.3}..{:.3} init {err_init:.6} refined {err2:.6}",
@@ -233,6 +234,7 @@ impl CubicOffset {
     }
 
     // Compute least squares error approximation, returning (a, b)
+    // TODO: this is going away, as we go to an arc approximation
     fn least_squares(&self, rec: &OffsetRec) -> (f64, f64) {
         let c = CubicBez::new(
             turn(rec.utan0).to_point(),
@@ -281,6 +283,16 @@ impl CubicOffset {
         (a, b)
     }
 
+    // Compute arc approximation
+    fn draw_arc(&self, rec: &OffsetRec) -> (f64, f64) {
+        // possible optimization: this can probably be done with vectors
+        // rather than arctangent
+        let th = rec.utan1.cross(rec.utan0).atan2(rec.utan1.dot(rec.utan0));
+        let a = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
+        let b = -a;
+        (a, b)
+    }
+
     /// Evaluate error and also refine t values
     ///
     /// Returns squared absolute distance error.
@@ -288,16 +300,22 @@ impl CubicOffset {
         let qa = c_approx.deriv();
         let mut max_err = 0.0;
         for i in 0..N_LSE {
-            let mut ta = ts[i];
-            let utan = rec.utans[i];
-            let p = rec.p_offset[i];
-            // Newton step to refine ta value
+            let ta = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let mut t = ts[i];
+            let p = self.c.eval(t);
+            // Newton step to refine t value
             let pa = c_approx.eval(ta);
             let tana = qa.eval(ta).to_vec2();
-            ta -= utan.dot(pa - p) / utan.dot(tana);
-            ts[i] = ta;
-            let dist_err_squared = p.distance_squared(c_approx.eval(ta));
-            // Note: would be very cheap to also include angle error
+            t += tana.dot(pa - p) / tana.dot(self.q.eval(t).to_vec2());
+            ts[i] = t;
+            let cusp = rec.cusp0.signum();
+            let utan = cusp * tana.normalize();
+            let p_new = self.c.eval(t) + self.d * turn(utan);
+            // optimization: retain utan for refine step?
+            let dist_err_squared = p_new.distance_squared(pa);
+            // Note: would be very cheap to also include angle error.
+            // Math below may be stale, it was based on Newton step
+            // for approximation.
             // let angle_err = qa.eval(ta).to_vec2().cross(utan);
             // 0.15 is based off n=3, should decrease
             // let err = dist_err + 0.15 * angle_err.abs();
@@ -314,15 +332,20 @@ impl CubicOffset {
         a: f64,
         b: f64,
     ) -> (f64, f64) {
+        let q_approx = c_approx.deriv();
         let mut aa = 0.0;
         let mut ab = 0.0;
         let mut ac = 0.0;
         let mut bb = 0.0;
         let mut bc = 0.0;
         for i in 0..N_LSE {
-            let n = turn(rec.utans[i]);
-            let t = ts[i];
-            let err_vec = c_approx.eval(t) - rec.p_offset[i];
+            let t = (i + 1) as f64 * (1.0 / (N_LSE + 1) as f64);
+            let t_orig = ts[i];
+            let cusp = rec.cusp0.signum();
+            let utan = cusp * q_approx.eval(t).to_vec2().normalize();
+            let n = turn(utan);
+            let p_off = self.c.eval(t_orig) + self.d * n;
+            let err_vec = c_approx.eval(t) - p_off;
             let c_n = err_vec.dot(n);
             let c_t = err_vec.cross(n);
             let mt = 1.0 - t;
