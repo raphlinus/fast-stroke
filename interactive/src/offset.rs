@@ -133,32 +133,37 @@ impl CubicOffset {
             self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
             return;
         }
-        let (a, b) = self.draw_arc(rec);
+        let (mut a, mut b) = self.draw_arc(rec);
         let dt = (rec.t1 - rec.t0) * (1.0 / (N_LSE + 1) as f64);
         // These represent t values on the source curve.
         let mut ts = core::array::from_fn(|i| rec.t0 + (i + 1) as f64 * dt);
         let mut c_approx = self.apply(rec, a, b);
         let err_init = self.eval_err(rec, c_approx, &mut ts);
         let mut err = err_init;
+        // for debugging only
+        let mut errs = vec![err];
         // speed/quality tradeoff: skip refinement if in tolerance
-        let (mut a2, mut b2) = self.refine_least_squares(rec, c_approx, ts, a, b);
-        for _ in 0..1 {
-            let c_approx = self.apply(rec, a2, b2);
-            let err = self.eval_err(rec, c_approx, &mut ts);
-            web_sys::console::log_1(&format!("{err} {ts:?}").into());
-            (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a2, b2);
-        }
-        let c_approx2 = self.apply(rec, a2, b2);
-        let err2 = self.eval_err(rec, c_approx2, &mut ts);
-        if err2 < err {
-            c_approx = c_approx2;
+        const N_REFINE: usize = 3;
+        for _ in 0..N_REFINE {
+            if err <= self.tolerance.powi(2) {
+                break;
+            }
+            let (a2, b2) = self.refine_least_squares(rec, c_approx, ts, a, b);
+            let c_approx2 = self.apply(rec, a2, b2);
+            let err2 = self.eval_err(rec, c_approx2, &mut ts);
+            errs.push(err2);
+            if err2 >= err {
+                break;
+            }
             err = err2;
+            (a, b) = (a2, b2);
+            c_approx = c_approx2;
         }
         //let c_subseg = self.c.subsegment(rec.t0..rec.t1);
         //web_sys::console::log_1(&c_subseg.into_path(0.0).to_svg().into());
         web_sys::console::log_1(
             &format!(
-                "{}{:.3}..{:.3} init {err_init:.6} refined {err2:.6}",
+                "{}{:.3}..{:.3} {errs:.5?}",
                 " ".repeat(rec.depth),
                 rec.t0,
                 rec.t1
@@ -312,7 +317,11 @@ impl CubicOffset {
             let utan = cusp * tana.normalize();
             let p_new = self.c.eval(t) + self.d * turn(utan);
             // optimization: retain utan for refine step?
-            let dist_err_squared = p_new.distance_squared(pa);
+            let mut dist_err_squared = p_new.distance_squared(pa);
+            if !dist_err_squared.is_finite() {
+                // A hack to make sure we reject bad refinements
+                dist_err_squared = 1e12;
+            }
             // Note: would be very cheap to also include angle error.
             // Math below may be stale, it was based on Newton step
             // for approximation.
@@ -320,6 +329,11 @@ impl CubicOffset {
             // 0.15 is based off n=3, should decrease
             // let err = dist_err + 0.15 * angle_err.abs();
             max_err = dist_err_squared.max(max_err);
+            if !dist_err_squared.is_finite() {
+                web_sys::console::log_1(
+                    &format!("finite failure {dist_err_squared} {max_err}").into(),
+                );
+            }
         }
         max_err
     }
