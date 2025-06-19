@@ -717,14 +717,6 @@ impl OffsetSolutionLse {
         let b_scaled = b / (self.d * co.q.p2.to_vec2().length());
         self.a += a_scaled;
         self.b += b_scaled;
-        web_sys::console::log_1(
-            &format!(
-                "a = {}, b = {}",
-                self.a * co.q.p0.to_vec2().length(),
-                self.b * co.q.p2.to_vec2().length(),
-            )
-            .into(),
-        );
         let err_min = a * a * aa_n
             + 2.0 * a * b * ab_n
             + 2.0 * a * ac_n
