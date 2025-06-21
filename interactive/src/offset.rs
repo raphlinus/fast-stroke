@@ -313,6 +313,20 @@ impl CubicOffset {
         (a, b)
     }
 
+    fn one_point(&self, rec: &OffsetRec) -> (f64, f64) {
+        let t = 0.5 * (rec.t0 + rec.t1);
+        let (w0, w1, w2, w3) = (0.125, 0.375, 0.375, 0.125);
+        let n1 = turn(self.q.eval(t).to_vec2().normalize());
+        let ca = w1 * rec.utan0;
+        let cb = w2 * rec.utan1;
+        let cc = (w0 + w1) * turn(rec.utan0) + (w2 + w3) * turn(rec.utan1);
+        let z = n1 - cc;
+        let idet = 1.0 / ca.cross(cb);
+        let a = z.cross(cb) * idet;
+        let b = ca.cross(z) * idet;
+        (a, b)
+    }
+
     /// Evaluate error and also refine t values
     ///
     /// Returns squared absolute distance error.
