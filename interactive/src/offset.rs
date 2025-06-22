@@ -343,6 +343,7 @@ impl CubicOffset {
             let pa = c_approx.eval(ta);
             let tana = qa.eval(ta).to_vec2();
             t += tana.dot(pa - p) / tana.dot(self.q.eval(t).to_vec2());
+            t = t.max(rec.t0).min(rec.t1);
             ts[i] = t;
             let cusp = rec.cusp0.signum();
             let unorm = turn(cusp * tana.normalize());
