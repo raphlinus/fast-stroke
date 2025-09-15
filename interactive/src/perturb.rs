@@ -564,6 +564,33 @@ pub fn draw_arc(c: CubicBez) -> (f64, f64) {
     (a_scaled, b_scaled)
 }
 
+/// Refine arc drawing solution to have zero linear error at midpoint
+pub fn arc_onept_linear(c: CubicBez) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let co = CurveOffset::new(c);
+    let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
+    let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
+    let b_arc = -a_arc;
+    let mid = 0.5 * turn(utan0 + utan1) + (3. / 8.) * (a_arc * utan0 + b_arc * utan1);
+    let nm = turn(co.q.eval(0.5).to_vec2().normalize());
+    let delta = 1.0 - mid.dot(nm);
+    let dot0 = utan0.dot(nm);
+    let dot1 = utan1.dot(nm);
+    let ratio = (8. / 3.) * delta / (dot0 * dot0 + dot1 * dot1);
+    let a_refined = a_arc + dot0 * ratio;
+    let b_refined = b_arc + dot1 * ratio;
+    // web_sys::console::log_1(&format!("mid = {mid:.4} nm = {nm:.4} delta = {delta:.4}").into());
+    // let mid_refined = 0.5 * turn(utan0 + utan1) + (3. / 8.) * (a_refined * utan0 + b_refined * utan1);
+    // let dot_refined = mid_refined.dot(nm);
+    // web_sys::console::log_1(&format!("dot_refined = {dot_refined:.4}").into());
+
+    let a_scaled = a_refined / co.q.p0.to_vec2().length();
+    let b_scaled = b_refined / co.q.p2.to_vec2().length();
+    (a_scaled, b_scaled)
+}
+
 impl OffsetSolution {
     pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
         let ts = OFFSET_TS;
