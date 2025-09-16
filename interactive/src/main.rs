@@ -75,18 +75,18 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
 
     let (a, b) = perturb::arc_onept_linear(c);
-    let soln_aol_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
+    let mut soln_aol_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_aol = soln_aol_lse.apply(&co);
     let path_aol = c_aol.to_path(0.0);
     let err_aol = perturb::plot(&perturb::error_by_rays(c, d, c_aol));
 
-    for _ in 0..1 {
-        soln_arc_lse.newton_step_rev(&co);
-        soln_arc_lse.refine_lse(&co);
+    for _ in 0..10 {
+        soln_aol_lse.newton_step_rev(&co);
+        soln_aol_lse.refine_lse(&co);
     }
-    let c_arc_lse = soln_arc_lse.apply(&co);
-    let path_arc_lse = c_arc_lse.to_path(0.0);
-    let err_arc_lse_refined = perturb::plot(&perturb::error_by_rays(c, d, c_arc_lse));
+    let c_aol_lse = soln_aol_lse.apply(&co);
+    let path_aol_lse = c_aol_lse.to_path(0.0);
+    let err_aol_lse_refined = perturb::plot(&perturb::error_by_rays(c, d, c_aol_lse));
 
     /*
     let (a1, b1) = perturb::one_point(c);
@@ -141,7 +141,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        path_aol.stroke(Color::BLUE, stroke_thin.clone()).fill(NONE),
+        path_aol.stroke(Color::CYAN, stroke_thin.clone()).fill(NONE),
+        path_aol_lse
+            .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
+            .fill(NONE),
         /*
         path_arc_lse
             .stroke(Color::YELLOW, stroke_thin.clone())
@@ -151,7 +154,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_arc
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        err_aol.stroke(Color::BLUE, stroke_thin.clone()).fill(NONE),
+        err_aol.stroke(Color::CYAN, stroke_thin.clone()).fill(NONE),
+        err_aol_lse_refined
+            .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
+            .fill(NONE),
         /*
         err_arc_lse_refined
             .stroke(Color::YELLOW, stroke_thin.clone())
