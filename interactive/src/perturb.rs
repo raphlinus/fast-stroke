@@ -1,4 +1,4 @@
-use kurbo::QuadBez;
+use kurbo::{ParamCurveCurvature, QuadBez};
 // Doing lots of experiments, will try things and then move on.
 #[allow(unused)]
 use kurbo::{
@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 1.0;
+const ERROR_SCALE: f64 = 1.0e0;
 const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
@@ -569,7 +569,6 @@ pub fn arc_onept_linear(c: CubicBez) -> (f64, f64) {
     let co = CurveOffset::new(c);
     let utan0 = co.q.p0.to_vec2().normalize();
     let utan1 = co.q.p2.to_vec2().normalize();
-    let co = CurveOffset::new(c);
     let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
     let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
     let b_arc = -a_arc;
@@ -589,6 +588,41 @@ pub fn arc_onept_linear(c: CubicBez) -> (f64, f64) {
     let a_scaled = a_refined / co.q.p0.to_vec2().length();
     let b_scaled = b_refined / co.q.p2.to_vec2().length();
     (a_scaled, b_scaled)
+}
+
+/// Variant of arc onepoint with second order error approximation
+pub fn arc_onept_quadratic(c: CubicBez, d: f64) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
+    let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
+    let b_arc = -a_arc;
+
+    let r = 1.0 / c.curvature(0.5);
+    let r_offset = r + d;
+    // center of osculating circle
+    let center = c.eval(0.5) - turn(co.q.eval(0.5).to_vec2().normalize()) * r;
+    web_sys::console::log_1(&format!("r = {r:.4}, center {center:.4}").into());
+    let a_scaled = a_arc / co.q.p0.to_vec2().length();
+    let b_scaled = b_arc / co.q.p2.to_vec2().length();
+    // Note: we could compute this much more directly, but this is clear & concise
+    let p_approx = co.apply(a_scaled, b_scaled, d).eval(0.5);
+    let goal_vec = (p_approx - center).normalize();
+    let goal = center + r_offset.abs() * goal_vec;
+    web_sys::console::log_1(&format!("p_approx = {p_approx:.4}, goal = {goal:.4}").into());
+    let delta = (goal - p_approx).dot(goal_vec) / d;
+    web_sys::console::log_1(&format!("delta = {delta:.4}").into());
+    let dot0 = utan0.dot(goal_vec);
+    let dot1 = utan1.dot(goal_vec);
+    let ratio = (8. / 3.) * delta / (dot0 * dot0 + dot1 * dot1);
+
+    let a_refined = a_arc + dot0 * ratio;
+    let b_refined = b_arc + dot1 * ratio;
+
+    let ar_scaled = a_refined / co.q.p0.to_vec2().length();
+    let br_scaled = b_refined / co.q.p2.to_vec2().length();
+    (ar_scaled, br_scaled)
 }
 
 impl OffsetSolution {

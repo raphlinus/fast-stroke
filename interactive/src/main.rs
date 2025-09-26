@@ -74,13 +74,13 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_arc = c_arc.to_path(0.0);
     let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
 
-    let (a, b) = perturb::arc_onept_linear(c);
+    let (a, b) = perturb::arc_onept_quadratic(c, d);
     let mut soln_aol_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_aol = soln_aol_lse.apply(&co);
     let path_aol = c_aol.to_path(0.0);
     let err_aol = perturb::plot(&perturb::error_by_rays(c, d, c_aol));
 
-    for _ in 0..10 {
+    for _ in 0..2 {
         soln_aol_lse.newton_step_rev(&co);
         soln_aol_lse.refine_lse(&co);
     }
