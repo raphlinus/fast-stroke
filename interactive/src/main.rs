@@ -69,12 +69,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     let (a, b) = perturb::draw_arc(c);
-    let mut soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
+    let soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_arc = soln_arc_lse.apply(&co);
     let path_arc = c_arc.to_path(0.0);
     let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
 
-    let (a, b) = perturb::arc_onept_quadratic(c, d);
+    let (a, b) = perturb::arc_onept(c, d);
     let mut soln_aol_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_aol = soln_aol_lse.apply(&co);
     let path_aol = c_aol.to_path(0.0);

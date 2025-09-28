@@ -625,6 +625,56 @@ pub fn arc_onept_quadratic(c: CubicBez, d: f64) -> (f64, f64) {
     (ar_scaled, br_scaled)
 }
 
+/// New version of one-point that places t = 0.5 on true curve
+pub fn arc_onept(c: CubicBez, d: f64) -> (f64, f64) {
+    let co = CurveOffset::new(c);
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
+    let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
+    let b_arc = -a_arc;
+
+    let a_scaled = a_arc / co.q.p0.to_vec2().length();
+    let b_scaled = b_arc / co.q.p2.to_vec2().length();
+
+    let mid = 0.5 * turn(utan0 + utan1) + (3. / 8.) * (a_arc * utan0 + b_arc * utan1);
+    let p_approx = c.eval(0.5) + d * mid;
+
+    let nm = turn(co.q.eval(0.5).to_vec2().normalize());
+    let mut n = nm;
+    let dot0 = utan0.dot(nm);
+    let dot1 = utan1.dot(nm);
+    let dir = utan0 * dot0 + utan1 * dot1;
+    // now solve for t so that true offset(t) x dir = nm x dir
+    let mut t = 0.5;
+    // Point on true offset
+    let mut p = co.c.eval(t) + d * nm;
+    // TODO: detect convergence and break
+    // hypothesis: one Newton step is enough to establish scaling
+    for i in 0..2 {
+        // Newton step
+        let dpdt = co.q.eval(t).to_vec2() * (1.0 + d * c.curvature(t));
+        let err = (p - p_approx).cross(dir);
+        web_sys::console::log_1(&format!("{i}: err = {err}").into());
+        t -= err / dpdt.cross(dir);
+        n = turn(co.q.eval(t).to_vec2().normalize());
+        p = co.c.eval(t) + d * n;
+    }
+    let delta = (p - p_approx).dot(nm);
+    let ratio = (8. / 3.) * delta / (d * (dot0 * dot0 + dot1 * dot1));
+
+    let a_refined = a_arc + dot0 * ratio;
+    let b_refined = b_arc + dot1 * ratio;
+
+    let ar_scaled = a_refined / co.q.p0.to_vec2().length();
+    let br_scaled = b_refined / co.q.p2.to_vec2().length();
+
+    let c_soln = co.apply(ar_scaled, br_scaled, d);
+    let p2 = c_soln.eval(0.5);
+    web_sys::console::log_1(&format!("true {p:.4?} approx {p2:.4?}").into());
+    (ar_scaled, br_scaled)
+}
+
 impl OffsetSolution {
     pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
         let ts = OFFSET_TS;
