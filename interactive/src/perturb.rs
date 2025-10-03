@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 1.0e0;
+const ERROR_SCALE: f64 = 1.0e1;
 const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
@@ -358,18 +358,17 @@ pub fn one_point(c: CubicBez) -> (f64, f64) {
     (a, b)
 }
 
-/// One point shape control, adjustable ta
-pub fn one_point_at(c: CubicBez, d: f64, ta: f64) -> (f64, f64) {
+/// One point shape control, adjustable t on source curve
+///
+/// Note: this function originally adjusted the t on the approximation,
+/// keeping t = 0.5 on source curve fixed.
+pub fn one_point_at(c: CubicBez, d: f64, t: f64) -> (f64, f64) {
     let co = CurveOffset::new(c);
     let b01 = co.q.p0.to_vec2();
     let b23 = co.q.p2.to_vec2();
-    let n1 = turn(co.q.eval(0.5).to_vec2().normalize());
-    let dp = c.eval(0.5) + d * n1 - c.eval(ta);
-    let mt = 1.0 - ta;
-    let w0 = mt * mt * mt;
-    let w1 = 3.0 * mt * mt * ta;
-    let w2 = 3.0 * mt * ta * ta;
-    let w3 = ta * ta * ta;
+    let n1 = turn(co.q.eval(t).to_vec2().normalize());
+    let dp = c.eval(t) + d * n1 - c.eval(0.5);
+    let (w0, w1, w2, w3) = (0.125, 0.375, 0.375, 0.125);
     let ca = w1 * b01;
     let cb = w2 * b23;
     let cc = (w0 + w1) * co.n0 + (w2 + w3) * co.n1;
@@ -388,13 +387,13 @@ pub fn refine_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
     let errs = [-DT, DT].map(|dt| {
         let (a, b) = one_point_at(c, d, t + dt);
         let approx = co.apply(a, b, d);
-        let tana = approx.deriv().eval(t + dt).to_vec2();
-        let tan = co.q.eval(t).to_vec2();
-        let angle_err = tana.cross(tan).abs() / tan.hypot();
+        let tana = approx.deriv().eval(0.5).to_vec2().normalize();
+        let tan = co.q.eval(t + dt).to_vec2().normalize();
+        let angle_err = tana.cross(tan);
         angle_err
     });
     let new_t = t - (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
-    web_sys::console::log_1(&format!("{errs:?} {new_t}").into());
+    web_sys::console::log_1(&format!("refine one point {errs:?} {new_t}").into());
     new_t
 }
 
@@ -626,16 +625,15 @@ pub fn arc_onept_quadratic(c: CubicBez, d: f64) -> (f64, f64) {
 }
 
 /// New version of one-point that places t = 0.5 on true curve
-pub fn arc_onept(c: CubicBez, d: f64) -> (f64, f64) {
+///
+/// Return value is (a, b, t) where t is point on true curve.
+pub fn arc_onept(c: CubicBez, d: f64) -> (f64, f64, f64) {
     let co = CurveOffset::new(c);
     let utan0 = co.q.p0.to_vec2().normalize();
     let utan1 = co.q.p2.to_vec2().normalize();
     let th = utan1.cross(utan0).atan2(utan1.dot(utan0));
     let a_arc = (2. / 3.) / (1.0 + (0.5 * th).cos()) * 2.0 * (0.5 * th).sin();
     let b_arc = -a_arc;
-
-    let a_scaled = a_arc / co.q.p0.to_vec2().length();
-    let b_scaled = b_arc / co.q.p2.to_vec2().length();
 
     let mid = 0.5 * turn(utan0 + utan1) + (3. / 8.) * (a_arc * utan0 + b_arc * utan1);
     let p_approx = c.eval(0.5) + d * mid;
@@ -672,7 +670,7 @@ pub fn arc_onept(c: CubicBez, d: f64) -> (f64, f64) {
     let c_soln = co.apply(ar_scaled, br_scaled, d);
     let p2 = c_soln.eval(0.5);
     web_sys::console::log_1(&format!("true {p:.4?} approx {p2:.4?}").into());
-    (ar_scaled, br_scaled)
+    (ar_scaled, br_scaled, t)
 }
 
 impl OffsetSolution {
