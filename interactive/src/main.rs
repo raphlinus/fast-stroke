@@ -88,32 +88,15 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_ao = c_ao.to_path(0.0);
     let err_ao = perturb::plot(&perturb::error_by_rays(c, d, c_ao));
 
-    for _ in 0..5 {
-        t = perturb::refine_one_point(c, d, t);
-    }
-
-    let (a, b) = perturb::one_point_at(c, d, t);
-    let soln_onept2 = perturb::OffsetSolutionLse::from_a_b(a, b, d);
-    let c_onept2 = soln_onept2.apply(&co);
-    let path_onept2 = c_onept2.to_path(0.0);
-    let err_onept2 = perturb::plot(&perturb::error_by_rays(c, d, c_onept2));
-
-    let (a, b) = perturb::one_point_at(c, d, 0.5);
-    let soln_onept = perturb::OffsetSolutionLse::from_a_b(a, b, d);
-    let c_onept = soln_onept.apply(&co);
-    let path_onept = c_onept.to_path(0.0);
-    let err_onept = perturb::plot(&perturb::error_by_rays(c, d, c_onept));
-
-    t = 0.5;
-    for _ in 0..5 {
-        t = perturb::refine_one_point(c, d, t);
-    }
+    t = perturb::solve_midpoint(c, d);
 
     let (a, b) = perturb::one_point_at(c, d, t);
     let soln_onept3 = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_onept3 = soln_onept3.apply(&co);
     let path_onept3 = c_onept3.to_path(0.0);
     let err_onept3 = perturb::plot(&perturb::error_by_rays(c, d, c_onept3));
+
+    let derr_plot = perturb::plot(&perturb::onept_err_plot(c, d));
 
     /*
     let (a1, b1) = perturb::one_point(c);
@@ -168,24 +151,15 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_ao
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        path_onept
-            .stroke(Color::CYAN, stroke_thin.clone())
-            .fill(NONE),
-        path_onept2
-            .stroke(Color::BLUE, stroke_thin.clone())
-            .fill(NONE),
         path_onept3
-            .stroke(Color::PURPLE, stroke_thin.clone())
+            .stroke(Color::CYAN, stroke_thin.clone())
             .fill(NONE),
         err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
-        err_onept
+        err_onept3
             .stroke(Color::CYAN, stroke_thin.clone())
             .fill(NONE),
-        err_onept2
-            .stroke(Color::BLUE, stroke_thin.clone())
-            .fill(NONE),
-        err_onept3
-            .stroke(Color::PURPLE, stroke_thin.clone())
+        derr_plot
+            .stroke(Color::WHITE_SMOKE, stroke_thin.clone())
             .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)

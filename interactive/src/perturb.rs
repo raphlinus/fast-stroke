@@ -387,7 +387,7 @@ pub fn refine_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
     let errs = [-DT, DT].map(|dt| {
         let (a, b) = one_point_at(c, d, t + dt);
         let approx = co.apply(a, b, d);
-        let tana = approx.deriv().eval(0.5).to_vec2().normalize();
+        let tana = approx.deriv().eval(0.5).to_vec2();
         let tan = co.q.eval(t + dt).to_vec2().normalize();
         let angle_err = tana.cross(tan);
         angle_err
@@ -395,6 +395,99 @@ pub fn refine_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
     let new_t = t - (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
     web_sys::console::log_1(&format!("refine one point {errs:?} {new_t}").into());
     new_t
+}
+
+fn compute_angle_err(co: &CurveOffset, d: f64, t: f64) -> f64 {
+    let (a, b) = one_point_at(co.c, d, t);
+    let approx = co.apply(a, b, d);
+    let tana = approx.deriv().eval(0.5).to_vec2();
+    let tan = co.q.eval(t).to_vec2().normalize();
+    tana.cross(tan)
+}
+
+/// Solve for t such that t=0.5 on approximation matches position and tangent.
+pub fn solve_midpoint(c: CubicBez, d: f64) -> f64 {
+    let co = CurveOffset::new(c);
+    const DT: f64 = 1e-6;
+    const THRESH: f64 = 1e-6; // TODO: make configurable
+                              // try Newton solving first
+    let mut t = 0.5;
+    let mid_err = compute_angle_err(&co, d, t);
+    web_sys::console::log_1(&format!("init err = {mid_err}").into());
+    let mut err = mid_err;
+    for _ in 0..5 {
+        if err.abs() < THRESH {
+            return t;
+        }
+        // TODO: analytical derivative here
+        let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
+        t -= (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
+        if t < 0.0 || t > 1.0 {
+            break;
+        }
+        let new_err = compute_angle_err(&co, d, t);
+        web_sys::console::log_1(&format!("t = {t}, err = {new_err}").into());
+        if new_err.abs() > err.abs() {
+            break;
+        }
+        err = new_err;
+    }
+    // Newton solving failed, try ITP instead
+    // First, find brackets containing solution
+    const INIT_DELTA: f64 = 1. / 256.;
+    let mut delta = INIT_DELTA;
+    let mut t_lo = 0.5;
+    let mut t_hi = 0.5;
+    let mut err_lo = mid_err;
+    let mut err_hi = mid_err;
+    let mid_sign = mid_err.signum();
+    loop {
+        t = 0.5 + delta;
+        err = compute_angle_err(&co, d, t);
+        if err * mid_sign < 0.0 {
+            break;
+        }
+        if delta > 0. {
+            err_hi = err;
+            t_hi = t;
+            delta = -delta;
+        } else {
+            err_lo = err;
+            t_lo = t;
+            delta = -2.0 * delta;
+            if delta == 1.0 {
+                // failure
+                return 0.5;
+            }
+        }
+    }
+    let (t0, t1, e0, e1, sign) = if delta > 0.0 {
+        (t_hi, t, err_hi, err, -mid_sign)
+    } else {
+        (t, t_lo, err, err_lo, mid_sign)
+    };
+    let f = |t| sign * compute_angle_err(&co, d, t);
+    let ya = sign * e0;
+    let yb = sign * e1;
+    let k1 = 0.2 / (t1 - t0);
+    web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb}").into());
+    kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb)
+}
+
+pub fn onept_err_plot(c: CubicBez, d: f64) -> Vec<(f64, f64)> {
+    let co = CurveOffset::new(c);
+    const N: usize = 50;
+    (0..=N)
+        .map(|i| {
+            let t = i as f64 / N as f64;
+            let (a, b) = one_point_at(c, d, t);
+            let approx = co.apply(a, b, d);
+            let tana = approx.deriv().eval(0.5).to_vec2();
+            let tan = co.q.eval(t).to_vec2().normalize();
+            let angle_err = tana.cross(tan);
+            (t, 2e-4 * angle_err)
+        })
+        .collect()
 }
 
 pub fn brute_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
