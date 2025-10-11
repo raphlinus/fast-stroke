@@ -9,7 +9,7 @@ fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
-const ERROR_SCALE: f64 = 1.0e1;
+const ERROR_SCALE: f64 = 1.0e2;
 const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
@@ -405,23 +405,87 @@ fn compute_angle_err(co: &CurveOffset, d: f64, t: f64) -> f64 {
     tana.cross(tan)
 }
 
+/// Compute the derivative of angle error wrt t
+///
+/// Work in progress: compute analytically
+pub fn angle_err_deriv(co: &CurveOffset, d: f64, t: f64) -> f64 {
+    // first compute numerically
+    //const DT: f64 = 1e-6;
+    //let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
+    //let num_deriv = (errs[1] - errs[0]) / (2.0 * DT);
+
+    let k = co.c.curvature(t);
+
+    // Note: these should probably be computed from unit tangents
+    let b01 = co.q.p0.to_vec2();
+    let b23 = co.q.p2.to_vec2();
+    // Note: this det is missing a factor of d, also scaled 3/8 compared with other code
+    //let det = (3. / 8.) * b01.cross(b23);
+    let idet = (8. / 3.) / b01.cross(b23);
+
+    let tan = co.q.eval(t).to_vec2();
+    let utan = tan.normalize();
+
+    let dp = co.c.eval(t) + d * turn(utan) - co.c.eval(0.5);
+    let cc = co.n0 + co.n1;
+    let z = dp - d * 0.5 * cc;
+    // Note: these (a, b) have a factor of d, compared with one_point_at
+    let a = z.cross(b23) * idet;
+    let b = b01.cross(z) * idet;
+
+    // tana_base is invariant to t
+    let tana_base = co.q.eval(0.5).to_vec2() + 1.5 * d * (co.n1 - co.n0);
+    let tana = tana_base + 0.75 * (b * b23 - a * b01);
+
+    // Multiply these by 3/8(1 + k d) / det to get true da/dt and db/dt
+    let dadt = tan.cross(b23);
+    let dbdt = b01.cross(tan);
+
+    //web_sys::console::log_1(&format!("d ab {dadt} {dbdt} {da_dt_a} {db_dt_a}").into());
+
+    let dutan_dt = -k * turn(tan);
+
+    /*
+    let tanp = co.q.eval(t + DT).to_vec2().normalize();
+    let tanm = co.q.eval(t - DT).to_vec2().normalize();
+    let dtan_dt_numeric = (tanp - tanm) / (2.0 * DT);
+    web_sys::console::log_1(&format!("num = {dtan_dt_numeric} deriv = {dtan_dt}").into());
+    */
+
+    let factor = 0.75 * (1.0 + k * d) * idet;
+    let dtana_dt = factor * (dbdt * b23 - dadt * b01);
+
+    /*
+    let approxp = co.apply(a + DT * dadt, b + DT * dbdt, d);
+    let approxm = co.apply(a - DT * dadt, b - DT * dbdt, d);
+    let tanap = approxp.deriv().eval(0.5).to_vec2();
+    let tanam = approxm.deriv().eval(0.5).to_vec2();
+    let dtana_dt = (tanap - tanam) / (2.0 * DT);
+    */
+
+    let deriv = tana.cross(dutan_dt) + dtana_dt.cross(utan);
+
+    //web_sys::console::log_1(&format!("num = {num_deriv} deriv = {deriv}").into());
+
+    deriv
+}
+
 /// Solve for t such that t=0.5 on approximation matches position and tangent.
-pub fn solve_midpoint(c: CubicBez, d: f64) -> f64 {
+pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
     let co = CurveOffset::new(c);
-    const DT: f64 = 1e-6;
     const THRESH: f64 = 1e-6; // TODO: make configurable
                               // try Newton solving first
-    let mut t = 0.5;
+    let mut t = t0;
     let mid_err = compute_angle_err(&co, d, t);
     web_sys::console::log_1(&format!("init err = {mid_err}").into());
     let mut err = mid_err;
-    for _ in 0..5 {
+    for _ in 0..8 {
         if err.abs() < THRESH {
-            return t;
+            return Some(t);
         }
-        // TODO: analytical derivative here
-        let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
-        t -= (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
+        //let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
+        //t -= (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
+        t -= err / angle_err_deriv(&co, d, t);
         if t < 0.0 || t > 1.0 {
             break;
         }
@@ -432,6 +496,9 @@ pub fn solve_midpoint(c: CubicBez, d: f64) -> f64 {
         }
         err = new_err;
     }
+    web_sys::console::log_1(&format!("failure").into());
+    None
+    /*
     // Newton solving failed, try ITP instead
     // First, find brackets containing solution
     const INIT_DELTA: f64 = 1. / 256.;
@@ -470,8 +537,37 @@ pub fn solve_midpoint(c: CubicBez, d: f64) -> f64 {
     let ya = sign * e0;
     let yb = sign * e1;
     let k1 = 0.2 / (t1 - t0);
-    web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb}").into());
-    kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb)
+    let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
+    web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
+    soln
+    */
+}
+
+/// Brute-force search for root of angle error.
+///
+/// Selects the second one (useful for middle of cubic-like soln) but this
+/// is not fully robust.
+///
+/// Useful for experimentation to decide if this middle soln is good.
+pub fn brute_midpoint(c: CubicBez, d: f64) -> f64 {
+    let co = CurveOffset::new(c);
+    let mut last = 0.0;
+    let mut crossings = 0;
+    let mut t_best = 0.0;
+    const N: usize = 200;
+    for i in 0..=N {
+        let t = i as f64 / N as f64;
+        let err = compute_angle_err(&co, d, t);
+        if i > 0 && err * last < 0.0 {
+            t_best = t - (0.5 / N as f64);
+            crossings += 1;
+            if crossings == 2 {
+                break;
+            }
+        }
+        last = err;
+    }
+    t_best
 }
 
 pub fn onept_err_plot(c: CubicBez, d: f64) -> Vec<(f64, f64)> {

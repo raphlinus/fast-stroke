@@ -65,7 +65,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 200.0;
+    let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     let (a, b) = perturb::draw_arc(c);
@@ -82,21 +82,32 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_arc_lse = c_arc_lse.to_path(0.0);
     let err_arc_lse_refined = perturb::plot(&perturb::error_by_rays(c, d, c_arc_lse));
 
-    let (a, b, mut t) = perturb::arc_onept(c, d);
+    let (a, b, t) = perturb::arc_onept(c, d);
     let soln_ao = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_ao = soln_ao.apply(&co);
     let path_ao = c_ao.to_path(0.0);
     let err_ao = perturb::plot(&perturb::error_by_rays(c, d, c_ao));
 
-    t = perturb::solve_midpoint(c, d);
+    let mut opt_t = perturb::solve_midpoint(c, d, 0.5);
+    if opt_t.is_none() {
+        opt_t = Some(0.5);
+    }
+    if opt_t.is_none() {
+        opt_t = perturb::solve_midpoint(c, d, t)
+    }
 
-    let (a, b) = perturb::one_point_at(c, d, t);
-    let soln_onept3 = perturb::OffsetSolutionLse::from_a_b(a, b, d);
+    let (a_m, b_m) = match opt_t {
+        Some(t) => perturb::one_point_at(c, d, t),
+        None => (a, b),
+    };
+    let soln_onept3 = perturb::OffsetSolutionLse::from_a_b(a_m, b_m, d);
     let c_onept3 = soln_onept3.apply(&co);
     let path_onept3 = c_onept3.to_path(0.0);
     let err_onept3 = perturb::plot(&perturb::error_by_rays(c, d, c_onept3));
 
     let derr_plot = perturb::plot(&perturb::onept_err_plot(c, d));
+
+    let _ = perturb::angle_err_deriv(&co, d, 0.5);
 
     /*
     let (a1, b1) = perturb::one_point(c);
@@ -151,12 +162,18 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         path_ao
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        path_arc_lse
+            .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
         path_onept3
             .stroke(Color::CYAN, stroke_thin.clone())
             .fill(NONE),
         err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
         err_onept3
             .stroke(Color::CYAN, stroke_thin.clone())
+            .fill(NONE),
+        err_arc_lse_refined
+            .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
         derr_plot
             .stroke(Color::WHITE_SMOKE, stroke_thin.clone())
