@@ -244,10 +244,13 @@ pub fn est_err_bounds(c: CubicBez, a: f64, b: f64) -> [f64; 3] {
 }
 
 pub fn plot(xys: &[(f64, f64)]) -> BezPath {
+    plot_scaled(xys, ERROR_SCALE)
+}
+
+pub fn plot_scaled(xys: &[(f64, f64)], scale: f64) -> BezPath {
     let mut result = BezPath::new();
     for (x, y) in xys {
-        let y = ERROR_SCALE * y;
-        let p = Affine::translate((100., 200.)) * Affine::scale(500.) * Point::new(*x, y);
+        let p = Affine::translate((100., 200.)) * Affine::scale(500.) * Point::new(*x, scale * y);
         if result.elements().is_empty() {
             result.move_to(p);
         } else {
@@ -473,7 +476,7 @@ pub fn angle_err_deriv(co: &CurveOffset, d: f64, t: f64) -> f64 {
 /// Solve for t such that t=0.5 on approximation matches position and tangent.
 pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
     let co = CurveOffset::new(c);
-    const THRESH: f64 = 1e-6; // TODO: make configurable
+    const THRESH: f64 = 1e-9; // TODO: make configurable
                               // try Newton solving first
     let mut t = t0;
     let mid_err = compute_angle_err(&co, d, t);
@@ -497,8 +500,7 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
         err = new_err;
     }
     web_sys::console::log_1(&format!("failure").into());
-    None
-    /*
+    //None
     // Newton solving failed, try ITP instead
     // First, find brackets containing solution
     const INIT_DELTA: f64 = 1. / 256.;
@@ -524,7 +526,7 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
             delta = -2.0 * delta;
             if delta == 1.0 {
                 // failure
-                return 0.5;
+                return None;
             }
         }
     }
@@ -539,8 +541,7 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
     let k1 = 0.2 / (t1 - t0);
     let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
     web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
-    soln
-    */
+    Some(soln)
 }
 
 /// Brute-force search for root of angle error.

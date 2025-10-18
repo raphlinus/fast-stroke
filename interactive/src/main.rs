@@ -1,4 +1,4 @@
-use kurbo::{BezPath, Circle, CubicBez, Line, PathEl, Point, Shape};
+use kurbo::{BezPath, Circle, CubicBez, Line, ParamCurve, ParamCurveDeriv, PathEl, Point, Shape};
 use perturb::CurveOffset;
 use xilem_web::{
     elements::{
@@ -24,6 +24,7 @@ struct AppState {
     offset: f64,
     tolerance: f64,
     grab: GrabState,
+    extra: Point,
 }
 
 #[derive(Default)]
@@ -62,17 +63,23 @@ impl GrabState {
 
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c = CubicBez::new(state.p0, state.p1, state.p2, state.p3);
+    let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
+    let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
+    let err_scale = 1e1 / scale.powi(6);
+    let t0 = offset * (1.0 - scale);
+    let t1 = t0 + scale;
+    let c = c.subsegment(t0..t1);
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 100.0;
+    let d = 200.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     let (a, b) = perturb::draw_arc(c);
     let mut soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_arc = soln_arc_lse.apply(&co);
     let path_arc = c_arc.to_path(0.0);
-    let err_arc = perturb::plot(&perturb::error_by_rays(c, d, c_arc));
+    let err_arc = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_arc), err_scale);
 
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
@@ -80,13 +87,16 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     }
     let c_arc_lse = soln_arc_lse.apply(&co);
     let path_arc_lse = c_arc_lse.to_path(0.0);
-    let err_arc_lse_refined = perturb::plot(&perturb::error_by_rays(c, d, c_arc_lse));
+    let err_arc_lse_refined =
+        perturb::plot_scaled(&perturb::error_by_rays(c, d, c_arc_lse), err_scale);
 
+    //let t = ((state.extra.x - 10.0) * 0.002).clamp(0., 1.);
+    //let (a, b) = perturb::one_point_at(c, d, t);
     let (a, b, t) = perturb::arc_onept(c, d);
     let soln_ao = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_ao = soln_ao.apply(&co);
     let path_ao = c_ao.to_path(0.0);
-    let err_ao = perturb::plot(&perturb::error_by_rays(c, d, c_ao));
+    let err_ao = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_ao), err_scale);
 
     let mut opt_t = perturb::solve_midpoint(c, d, 0.5);
     if opt_t.is_none() {
@@ -100,10 +110,13 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Some(t) => perturb::one_point_at(c, d, t),
         None => (a, b),
     };
+    const SCALE: f64 = 1e-6;
+    //let a_m = a_m + SCALE * (state.extra.x - 250.0);
+    //let b_m = b_m + SCALE * (state.extra.y - 250.0);
     let soln_onept3 = perturb::OffsetSolutionLse::from_a_b(a_m, b_m, d);
     let c_onept3 = soln_onept3.apply(&co);
     let path_onept3 = c_onept3.to_path(0.0);
-    let err_onept3 = perturb::plot(&perturb::error_by_rays(c, d, c_onept3));
+    let err_onept3 = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_onept3), err_scale);
 
     let derr_plot = perturb::plot(&perturb::onept_err_plot(c, d));
 
@@ -140,6 +153,20 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     //let evo = evolute::evolute_hacky_approx(c);
     //let evc = evolute::evolute_approx(c, tolerance);
 
+    let midpt = c_onept3.eval(0.5);
+    let midpt_utan = c_onept3.deriv().eval(0.5).to_vec2().normalize();
+    const MIDPT_LEN: f64 = 60.0;
+    let midpt_line = Line::new(
+        midpt + MIDPT_LEN * midpt_utan,
+        midpt - MIDPT_LEN * midpt_utan,
+    );
+
+    const TAN_LEN: f64 = 1000.0;
+    let utan0 = c_onept3.deriv().start().to_vec2().normalize();
+    let tan0_line = Line::new(c_onept3.p0 + TAN_LEN * utan0, c_onept3.p0 - TAN_LEN * utan0);
+    let tan1_line = Line::new(midpt + TAN_LEN * utan0, midpt - TAN_LEN * utan0);
+    let tan2_line = Line::new(c_onept3.p3 + TAN_LEN * utan0, c_onept3.p3 - TAN_LEN * utan0);
+
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
     let svg_el = svg(g((
@@ -155,19 +182,27 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         */
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
-        subdiv_pts(&path_offset),
+        //subdiv_pts(&path_offset),
         path_offset
             .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
+        /*
         path_ao
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         path_arc_lse
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
+            */
         path_onept3
             .stroke(Color::CYAN, stroke_thin.clone())
             .fill(NONE),
+        Circle::new(midpt, 4.0),
+        midpt_line.class("midpt"),
+        tan0_line.class("tan"),
+        tan1_line.class("tan"),
+        tan2_line.class("tan"),
+        /*
         err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
         err_onept3
             .stroke(Color::CYAN, stroke_thin.clone())
@@ -178,6 +213,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         derr_plot
             .stroke(Color::WHITE_SMOKE, stroke_thin.clone())
             .fill(NONE),
+        */
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
@@ -187,6 +223,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p2, &msg)),
             Circle::new(state.p3, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p3, &msg)),
+            // Circle::new(state.extra, HANDLE_RADIUS)
+            //     .class("extra")
+            //     .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
         )),
     )))
     .attr("width", 900)
@@ -229,6 +268,7 @@ pub fn main() {
     state.p1 = Point::new(350.0, 146.0);
     state.p2 = Point::new(496.0, 537.0);
     state.p3 = Point::new(739.0, 244.0);
+    state.extra = Point::new(500., 250.);
     // state.p0 = Point::new(742.483763921753, 245.69451584513587);
     // state.p1 = Point::new(742.3156048952269, 245.37897448914785);
     // state.p2 = Point::new(741.1749624891498, 244.83296435754676);
