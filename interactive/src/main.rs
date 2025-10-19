@@ -72,7 +72,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 200.0;
+    let d = 100.0;
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     let (a, b) = perturb::draw_arc(c);
@@ -110,6 +110,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Some(t) => perturb::one_point_at(c, d, t),
         None => (a, b),
     };
+    web_sys::console::log_1(&format!("midpoint check a {} b {}", a_m * d, b_m * d,).into());
     const SCALE: f64 = 1e-6;
     //let a_m = a_m + SCALE * (state.extra.x - 250.0);
     //let b_m = b_m + SCALE * (state.extra.y - 250.0);
@@ -199,9 +200,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .fill(NONE),
         Circle::new(midpt, 4.0),
         midpt_line.class("midpt"),
+        /*
         tan0_line.class("tan"),
         tan1_line.class("tan"),
         tan2_line.class("tan"),
+        */
         /*
         err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
         err_onept3

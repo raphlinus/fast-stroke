@@ -473,6 +473,8 @@ pub fn angle_err_deriv(co: &CurveOffset, d: f64, t: f64) -> f64 {
     deriv
 }
 
+const TRY_ITP: bool = true;
+
 /// Solve for t such that t=0.5 on approximation matches position and tangent.
 pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
     let co = CurveOffset::new(c);
@@ -484,6 +486,10 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
     let mut err = mid_err;
     for _ in 0..8 {
         if err.abs() < THRESH {
+            let (a, b) = one_point_at(c, d, t);
+            if a * d <= -1. / 3. || b * d >= 1. / 3. {
+                break;
+            }
             return Some(t);
         }
         //let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
@@ -500,48 +506,58 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
         err = new_err;
     }
     web_sys::console::log_1(&format!("failure").into());
-    //None
-    // Newton solving failed, try ITP instead
-    // First, find brackets containing solution
-    const INIT_DELTA: f64 = 1. / 256.;
-    let mut delta = INIT_DELTA;
-    let mut t_lo = 0.5;
-    let mut t_hi = 0.5;
-    let mut err_lo = mid_err;
-    let mut err_hi = mid_err;
-    let mid_sign = mid_err.signum();
-    loop {
-        t = 0.5 + delta;
-        err = compute_angle_err(&co, d, t);
-        if err * mid_sign < 0.0 {
-            break;
-        }
-        if delta > 0. {
-            err_hi = err;
-            t_hi = t;
-            delta = -delta;
-        } else {
-            err_lo = err;
-            t_lo = t;
-            delta = -2.0 * delta;
-            if delta == 1.0 {
-                // failure
-                return None;
+    if TRY_ITP {
+        // Newton solving failed, try ITP instead
+        // First, find brackets containing solution
+        const INIT_DELTA: f64 = 1. / 256.;
+        let mut delta = INIT_DELTA;
+        let mut t_lo = 0.5;
+        let mut t_hi = 0.5;
+        let mut err_lo = mid_err;
+        let mut err_hi = mid_err;
+        let mid_sign = mid_err.signum();
+        loop {
+            t = 0.5 + delta;
+            let (a, b) = one_point_at(c, d, t);
+            web_sys::console::log_1(&format!("t {t} a {} b {}", a * d, b * d).into());
+            if a * d > -1. / 3. && b * d < 1. / 3. {
+                err = compute_angle_err(&co, d, t);
+                if err * mid_sign < 0.0 {
+                    break;
+                }
+                if delta > 0. {
+                    err_hi = err;
+                    t_hi = t;
+                } else {
+                    err_lo = err;
+                    t_lo = t;
+                }
+            }
+            if delta > 0. {
+                delta = -delta;
+            } else {
+                delta = -2.0 * delta;
+                if delta == 1.0 {
+                    // failure
+                    return None;
+                }
             }
         }
-    }
-    let (t0, t1, e0, e1, sign) = if delta > 0.0 {
-        (t_hi, t, err_hi, err, -mid_sign)
+        let (t0, t1, e0, e1, sign) = if delta > 0.0 {
+            (t_hi, t, err_hi, err, -mid_sign)
+        } else {
+            (t, t_lo, err, err_lo, mid_sign)
+        };
+        let f = |t| sign * compute_angle_err(&co, d, t);
+        let ya = sign * e0;
+        let yb = sign * e1;
+        let k1 = 0.2 / (t1 - t0);
+        let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
+        web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
+        Some(soln)
     } else {
-        (t, t_lo, err, err_lo, mid_sign)
-    };
-    let f = |t| sign * compute_angle_err(&co, d, t);
-    let ya = sign * e0;
-    let yb = sign * e1;
-    let k1 = 0.2 / (t1 - t0);
-    let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
-    web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
-    Some(soln)
+        None
+    }
 }
 
 /// Brute-force search for root of angle error.
