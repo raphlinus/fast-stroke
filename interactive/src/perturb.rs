@@ -476,17 +476,29 @@ pub fn angle_err_deriv(co: &CurveOffset, d: f64, t: f64) -> f64 {
 const TRY_ITP: bool = true;
 
 /// Solve for t such that t=0.5 on approximation matches position and tangent.
-pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
-    let co = CurveOffset::new(c);
-    const THRESH: f64 = 1e-9; // TODO: make configurable
-                              // try Newton solving first
+pub fn solve_midpoint(co: &CurveOffset, d: f64) -> Option<f64> {
+    if let Some(t) = try_midpoint_newton(co, d, 0.5) {
+        return Some(t);
+    }
+    let roots = midpoint_cubic_approx(co, d);
+    for root in &roots {
+        if let Some(t) = try_midpoint_newton(co, d, *root) {
+            return Some(t);
+        }
+    }
+    try_midpoint_itp(co, d)
+}
+
+fn try_midpoint_newton(co: &CurveOffset, d: f64, t0: f64) -> Option<f64> {
+    const THRESH: f64 = 1e-12; // TODO: make configurable
+    const MAX_ITERS: usize = 10;
     let mut t = t0;
-    let mid_err = compute_angle_err(&co, d, t);
+    let mid_err = compute_angle_err(co, d, t);
     web_sys::console::log_1(&format!("init err = {mid_err}").into());
     let mut err = mid_err;
-    for _ in 0..8 {
+    for _ in 0..MAX_ITERS {
         if err.abs() < THRESH {
-            let (a, b) = one_point_at(c, d, t);
+            let (a, b) = one_point_at(co.c, d, t);
             if a * d <= -1. / 3. || b * d >= 1. / 3. {
                 break;
             }
@@ -494,70 +506,95 @@ pub fn solve_midpoint(c: CubicBez, d: f64, t0: f64) -> Option<f64> {
         }
         //let errs = [-DT, DT].map(|dt| compute_angle_err(&co, d, t + dt));
         //t -= (errs[0] + errs[1]) / (errs[1] - errs[0]) * DT;
-        t -= err / angle_err_deriv(&co, d, t);
+        t -= err / angle_err_deriv(co, d, t);
         if t < 0.0 || t > 1.0 {
             break;
         }
-        let new_err = compute_angle_err(&co, d, t);
+        let new_err = compute_angle_err(co, d, t);
         web_sys::console::log_1(&format!("t = {t}, err = {new_err}").into());
         if new_err.abs() > err.abs() {
             break;
         }
         err = new_err;
     }
-    web_sys::console::log_1(&format!("failure").into());
-    if TRY_ITP {
-        // Newton solving failed, try ITP instead
-        // First, find brackets containing solution
-        const INIT_DELTA: f64 = 1. / 256.;
-        let mut delta = INIT_DELTA;
-        let mut t_lo = 0.5;
-        let mut t_hi = 0.5;
-        let mut err_lo = mid_err;
-        let mut err_hi = mid_err;
-        let mid_sign = mid_err.signum();
-        loop {
-            t = 0.5 + delta;
-            let (a, b) = one_point_at(c, d, t);
-            web_sys::console::log_1(&format!("t {t} a {} b {}", a * d, b * d).into());
-            if a * d > -1. / 3. && b * d < 1. / 3. {
-                err = compute_angle_err(&co, d, t);
-                if err * mid_sign < 0.0 {
-                    break;
-                }
-                if delta > 0. {
-                    err_hi = err;
-                    t_hi = t;
-                } else {
-                    err_lo = err;
-                    t_lo = t;
-                }
+    web_sys::console::log_1(&format!("newton failure t0={t0}").into());
+    None
+}
+
+fn try_midpoint_itp(co: &CurveOffset, d: f64) -> Option<f64> {
+    const THRESH: f64 = 1e-12; // TODO: make configurable
+                               // First, find brackets containing solution
+    const INIT_DELTA: f64 = 1. / 256.;
+    let mut delta = INIT_DELTA;
+    let mut t = 0.5;
+    let mut t_lo = t;
+    let mut t_hi = t;
+    let mid_err = compute_angle_err(co, d, t);
+    let mut err = mid_err;
+    let mut err_lo = mid_err;
+    let mut err_hi = mid_err;
+    let mid_sign = mid_err.signum();
+    loop {
+        t = 0.5 + delta;
+        let (a, b) = one_point_at(co.c, d, t);
+        web_sys::console::log_1(&format!("t {t} a {} b {}", a * d, b * d).into());
+        if a * d > -1. / 3. && b * d < 1. / 3. {
+            err = compute_angle_err(&co, d, t);
+            if err * mid_sign < 0.0 {
+                break;
             }
             if delta > 0. {
-                delta = -delta;
+                err_hi = err;
+                t_hi = t;
             } else {
-                delta = -2.0 * delta;
-                if delta == 1.0 {
-                    // failure
-                    return None;
-                }
+                err_lo = err;
+                t_lo = t;
+            }
+        } else {
+        }
+        if delta > 0. {
+            delta = -delta;
+        } else {
+            delta = -2.0 * delta;
+            if delta == 1.0 {
+                // failure
+                return None;
             }
         }
-        let (t0, t1, e0, e1, sign) = if delta > 0.0 {
-            (t_hi, t, err_hi, err, -mid_sign)
-        } else {
-            (t, t_lo, err, err_lo, mid_sign)
-        };
-        let f = |t| sign * compute_angle_err(&co, d, t);
-        let ya = sign * e0;
-        let yb = sign * e1;
-        let k1 = 0.2 / (t1 - t0);
-        let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
-        web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
-        Some(soln)
-    } else {
-        None
     }
+    let (t0, t1, e0, e1, sign) = if delta > 0.0 {
+        (t_hi, t, err_hi, err, -mid_sign)
+    } else {
+        (t, t_lo, err, err_lo, mid_sign)
+    };
+    let f = |t| sign * compute_angle_err(&co, d, t);
+    let ya = sign * e0;
+    let yb = sign * e1;
+    let k1 = 0.2 / (t1 - t0);
+    let soln = kurbo::common::solve_itp(f, t0, t1, THRESH, 1, k1, ya, yb);
+    web_sys::console::log_1(&format!("itp {t0}..{t1} ya = {ya} yb = {yb} -> {soln}").into());
+    Some(soln)
+}
+
+/// Find cubic approximation of midpoint G1 function and solve.
+///
+/// Results are filtered to have positive control point distances
+fn midpoint_cubic_approx(co: &CurveOffset, d: f64) -> Vec<f64> {
+    const T0: f64 = 0.5;
+    const DT: f64 = 1e-3;
+    let e0 = compute_angle_err(co, d, T0);
+    let e1 = compute_angle_err(co, d, T0 + DT);
+    let d0 = DT * angle_err_deriv(co, d, T0);
+    let d1 = DT * angle_err_deriv(co, d, T0 + DT);
+    let c0 = e0;
+    let c1 = d0;
+    let c2 = 3. * (e1 - e0) - 2. * d0 - d1;
+    let c3 = -2. * (e1 - e0) + d0 + d1;
+    let roots = solve_cubic(c0, c1, c2, c3);
+    let mut filtered = roots.iter().map(|x| T0 + x * DT).collect::<Vec<_>>();
+    filtered.sort_by_key(|x| (x - (T0 + 0.5 * DT)).abs().to_bits());
+    web_sys::console::log_1(&format!("{filtered:?}").into());
+    filtered
 }
 
 /// Brute-force search for root of angle error.

@@ -98,13 +98,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path_ao = c_ao.to_path(0.0);
     let err_ao = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_ao), err_scale);
 
-    let mut opt_t = perturb::solve_midpoint(c, d, 0.5);
-    if opt_t.is_none() {
-        opt_t = Some(0.5);
-    }
-    if opt_t.is_none() {
-        opt_t = perturb::solve_midpoint(c, d, t)
-    }
+    let opt_t = perturb::solve_midpoint(&co, d);
 
     let (a_m, b_m) = match opt_t {
         Some(t) => perturb::one_point_at(c, d, t),
@@ -122,6 +116,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let derr_plot = perturb::plot(&perturb::onept_err_plot(c, d));
 
     let _ = perturb::angle_err_deriv(&co, d, 0.5);
+
+    //let roots = midpoint_cubic_approx(&co, d);
 
     /*
     let (a1, b1) = perturb::one_point(c);
@@ -207,16 +203,16 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         */
         /*
         err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
-        err_onept3
-            .stroke(Color::CYAN, stroke_thin.clone())
-            .fill(NONE),
         err_arc_lse_refined
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        derr_plot
-            .stroke(Color::WHITE_SMOKE, stroke_thin.clone())
-            .fill(NONE),
         */
+        err_onept3
+            .stroke(Color::CYAN, stroke_thin.clone())
+            .fill(NONE),
+        derr_plot
+            .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
@@ -227,8 +223,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             Circle::new(state.p3, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p3, &msg)),
             // Circle::new(state.extra, HANDLE_RADIUS)
-            //     .class("extra")
-            //     .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
+            // .class("extra")
+            // .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
         )),
     )))
     .attr("width", 900)
