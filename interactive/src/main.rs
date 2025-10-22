@@ -12,6 +12,7 @@ use xilem_web::{
 
 mod cusp;
 mod evolute;
+mod midpoint;
 mod offset;
 mod perturb;
 
@@ -147,22 +148,19 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let tolerance = 0.25;
     let path_offset = offset::offset_cubic(c, d, tolerance);
 
+    let c_midpoint_g1 = midpoint::CubicOffset::new(c, d, tolerance).approximate();
+    let path_midpoint_g1 = c_midpoint_g1.to_path(0.0);
+
     //let evo = evolute::evolute_hacky_approx(c);
     //let evc = evolute::evolute_approx(c, tolerance);
 
-    let midpt = c_onept3.eval(0.5);
-    let midpt_utan = c_onept3.deriv().eval(0.5).to_vec2().normalize();
+    let midpt = c_midpoint_g1.eval(0.5);
+    let midpt_utan = c_midpoint_g1.deriv().eval(0.5).to_vec2().normalize();
     const MIDPT_LEN: f64 = 60.0;
     let midpt_line = Line::new(
         midpt + MIDPT_LEN * midpt_utan,
         midpt - MIDPT_LEN * midpt_utan,
     );
-
-    const TAN_LEN: f64 = 1000.0;
-    let utan0 = c_onept3.deriv().start().to_vec2().normalize();
-    let tan0_line = Line::new(c_onept3.p0 + TAN_LEN * utan0, c_onept3.p0 - TAN_LEN * utan0);
-    let tan1_line = Line::new(midpt + TAN_LEN * utan0, midpt - TAN_LEN * utan0);
-    let tan2_line = Line::new(c_onept3.p3 + TAN_LEN * utan0, c_onept3.p3 - TAN_LEN * utan0);
 
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
@@ -196,6 +194,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .fill(NONE),
         Circle::new(midpt, 4.0),
         midpt_line.class("midpt"),
+        path_midpoint_g1
+            .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
+            .fill(NONE),
         /*
         tan0_line.class("tan"),
         tan1_line.class("tan"),

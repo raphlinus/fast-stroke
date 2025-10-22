@@ -5,7 +5,7 @@ use kurbo::{
     common::solve_cubic, Affine, BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, Vec2,
 };
 
-fn turn(v: Vec2) -> Vec2 {
+pub fn turn(v: Vec2) -> Vec2 {
     Vec2::new(-v.y, v.x)
 }
 
@@ -511,13 +511,13 @@ fn try_midpoint_newton(co: &CurveOffset, d: f64, t0: f64) -> Option<f64> {
             break;
         }
         let new_err = compute_angle_err(co, d, t);
-        web_sys::console::log_1(&format!("t = {t}, err = {new_err}").into());
+        //web_sys::console::log_1(&format!("t = {t}, err = {new_err}").into());
         if new_err.abs() > err.abs() {
             break;
         }
         err = new_err;
     }
-    web_sys::console::log_1(&format!("newton failure t0={t0}").into());
+    //web_sys::console::log_1(&format!("newton failure t0={t0}").into());
     None
 }
 
