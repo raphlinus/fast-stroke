@@ -65,6 +65,7 @@ impl GrabState {
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c = CubicBez::new(state.p0, state.p1, state.p2, state.p3);
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
+    web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
     let err_scale = 1e1 / scale.powi(6);
     let t0 = offset * (1.0 - scale);
@@ -223,9 +224,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p2, &msg)),
             Circle::new(state.p3, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p3, &msg)),
-            // Circle::new(state.extra, HANDLE_RADIUS)
-            // .class("extra")
-            // .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
+            Circle::new(state.extra, HANDLE_RADIUS)
+                .class("extra")
+                .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
         )),
     )))
     .attr("width", 900)

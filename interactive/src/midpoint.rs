@@ -72,13 +72,16 @@ impl CubicOffset {
 
     pub fn approximate(&self) -> CubicBez {
         let rec = self.init_rec();
-        if let Some(sample) = self.solve_midpoint(&rec) {
-            self.apply(&rec, &sample)
+        let (a, b, t) = if let Some(sample) = self.solve_midpoint(&rec) {
+            (sample.a, sample.b, sample.t)
         } else {
-            web_sys::console::log_1(&"solver failure".into());
-            let sample = self.one_point_at(&rec, 0.5);
-            self.apply(&rec, &sample)
-        }
+            let (a, b) = self.arc_draw(&rec);
+            (a, b, 0.5)
+        };
+        let c = self.apply(&rec, a, b);
+        let err = self.eval_err(&rec, t, c);
+        web_sys::console::log_1(&format!("err = {}", err.sqrt()).into());
+        c
     }
 
     fn init_rec(&self) -> OffsetRec {
@@ -99,18 +102,18 @@ impl CubicOffset {
         (cusp, utan)
     }
 
-    fn apply(&self, rec: &OffsetRec, sample: &Sample) -> CubicBez {
+    fn apply(&self, rec: &OffsetRec, a: f64, b: f64) -> CubicBez {
         // wondering if p0 and p3 should be in rec
         // Scale factor from derivatives to displacements
         let p0 = self.c.eval(rec.t0) + self.d * turn(rec.utan0);
-        let l0 = sample.a;
+        let l0 = a;
         let mut p1 = p0;
         if l0 * rec.cusp0 > 0.0 {
             p1 += l0 * rec.utan0;
         }
         let p3 = self.c.eval(rec.t1) + self.d * turn(rec.utan1);
         let mut p2 = p3;
-        let l1 = -sample.b;
+        let l1 = -b;
         if l1 * rec.cusp1 > 0.0 {
             p2 -= l1 * rec.utan1;
         }
@@ -150,7 +153,7 @@ impl CubicOffset {
     }
 
     fn solve_midpoint(&self, rec: &OffsetRec) -> Option<Sample> {
-        if let Some(sample) = self.try_midpoint_newton(rec, 0.5) {
+        if let Some(sample) = self.try_midpoint_newton(rec, 0.5 * (rec.t0 + rec.t1)) {
             return Some(sample);
         }
         let roots = self.midpoint_cubic_approx(rec);
@@ -163,13 +166,21 @@ impl CubicOffset {
     }
 
     fn try_midpoint_newton(&self, rec: &OffsetRec, t0: f64) -> Option<Sample> {
-        const THRESH: f64 = 1e-12; // TODO: make configurable
+        // This is a somewhat delicate setting. Observed error tends to be
+        // about 1/3 of angle_err (not rigorously validated). If the threshold
+        // is set too high, then out-of-tolerance approximations will result,
+        // which might have been in tolerance had there been another iteration.
+        // If it is set too low, then in addition to wasted work, there is the
+        // risk that the initial iteration was good enough but Newton iteration
+        // would not converge.
+        let threshold = self.tolerance;
         const MAX_ITERS: usize = 10;
         let mut t = t0;
         let mut sample = self.one_point_at(rec, t);
-        for _ in 0..MAX_ITERS {
+        for _i in 0..MAX_ITERS {
+            web_sys::console::log_1(&format!("newton {_i}: {}", sample.angle_err).into());
             let err = sample.angle_err.abs();
-            if err < THRESH {
+            if err < threshold {
                 // TODO: reverse signs for cusp
                 if sample.a < 0. || sample.b > 0. {
                     web_sys::console::log_1(&format!("rejected {}", sample.t).into());
@@ -211,6 +222,50 @@ impl CubicOffset {
         web_sys::console::log_1(&format!("{filtered:?}").into());
         filtered
     }
+
+    // Evaluate the error of the approximation
+    fn eval_err(&self, rec: &OffsetRec, tm: f64, c: CubicBez) -> f64 {
+        let mut max_err = 0.0;
+        for t in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] {
+            let p_approx = c.eval(t);
+            let q_approx = c.deriv().eval(t).to_vec2();
+            let mut u = if t < 0.5 {
+                rec.t0 + 2.0 * t * (tm - rec.t0)
+            } else {
+                rec.t1 + 2.0 * (1.0 - t) * (tm - rec.t1)
+            };
+            // bring p into normal ray of approx
+            // TODO: make iteration count adaptive
+            const N: usize = 3;
+            for i in 0..N {
+                let tan = self.q.eval(u).to_vec2();
+                let p = self.c.eval(u) + self.d * turn(tan.normalize());
+                let dpdu = tan * self.cusp_sign(u);
+                u -= (p - p_approx).dot(q_approx) / dpdu.dot(q_approx);
+                let err2 = p_approx.distance_squared(p);
+                if i == N - 1 {
+                    let z = q_approx.cross(dpdu);
+                    web_sys::console::log_1(&format!("{t}: {} {:.3}", err2.sqrt(), z).into());
+                    max_err = err2.max(max_err);
+                }
+            }
+        }
+        max_err
+    }
+
+    fn arc_draw(&self, rec: &OffsetRec) -> (f64, f64) {
+        let sum = rec.utan0 + rec.utan1;
+        let cross = rec.utan1.cross(rec.utan0);
+        let d = if cross.abs() > 1e-9 {
+            0.5 * (sum.length() - sum.dot(rec.utan0)) * rec.idet
+        } else {
+            (1. / 3.) * cross
+        };
+        let scale = (1. / 3.) * (rec.t1 - rec.t0);
+        let a = scale * self.q.eval(rec.t0).to_vec2().length() - d * self.d;
+        let b = -scale * self.q.eval(rec.t1).to_vec2().length() + d * self.d;
+        (a, b)
+    }
 }
 
 impl OffsetRec {
@@ -227,7 +282,7 @@ impl OffsetRec {
         let idet = (8. / 3.) / utan0.cross(utan1);
         // Approximation and deriv at approx t=0.5 when (a, b) are zero
         let c_base = co.c.p0.midpoint(co.c.p3) + co.d * 0.5 * turn(utan0 + utan1);
-        let tana_base = 1.5 * (co.c.p3 - co.c.p0) + co.d * 1.5 * turn(utan1 - utan0);
+        let tana_base = 1.5 * ((co.c.p3 - co.c.p0) + co.d * turn(utan1 - utan0));
         OffsetRec {
             t0,
             t1,
