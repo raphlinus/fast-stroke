@@ -147,7 +147,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     */
 
     let tolerance = 0.25;
-    let path_offset = offset::offset_cubic(c, d, tolerance);
+    let path_offset = midpoint::offset_cubic(c, d, tolerance);
 
     let c_midpoint_g1 = midpoint::CubicOffset::new(c, d, tolerance).approximate();
     let path_midpoint_g1 = c_midpoint_g1.to_path(0.0);
@@ -178,7 +178,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         */
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
-        //subdiv_pts(&path_offset),
+        subdiv_pts(&path_offset),
         path_offset
             .stroke(Color::LIME, stroke_thin.clone())
             .fill(NONE),
