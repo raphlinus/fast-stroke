@@ -41,6 +41,7 @@ pub struct OffsetRec {
     idet: f64,
     c_base: Point,
     tana_base: Vec2,
+    extreme: bool,
 }
 
 /// Intermediate results from sampling the curve at some t
@@ -70,7 +71,7 @@ pub fn offset_cubic(c: CubicBez, d: f64, tolerance: f64) -> BezPath {
     let (cusp0, utan0) = co.cusp_and_utan_inner(co.q.p0, co.c0);
     let (cusp1, utan1) = co.cusp_and_utan_inner(co.q.p2, co.c0 + co.c1 + co.c2);
     result.move_to(c.p0 + d * turn(utan0));
-    let rec = OffsetRec::new(&co, 0., 1., utan0, utan1, cusp0, cusp1, 0);
+    let rec = OffsetRec::new(&co, 0., 1., utan0, utan1, cusp0, cusp1, 0, false);
     co.offset_rec(&rec, &mut result);
     result
 }
@@ -134,14 +135,20 @@ impl CubicOffset {
             let utan_t = self.q.eval(t).to_vec2().normalize();
             let cusp_t_minus = CUSP_EPSILON.copysign(rec.cusp0);
             let cusp_t_plus = CUSP_EPSILON.copysign(rec.cusp1);
-            self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus);
+            self.subdivide(rec, result, t, utan_t, cusp_t_minus, cusp_t_plus, false);
             return;
         }
-        let (c, err, t) = self.compute_rec(rec);
+        let (c, err, mut t) = self.compute_rec(rec);
+        let dt = rec.t1 - rec.t0;
+        let mut child_extreme = t < rec.t0 + 0.1 * dt || t > rec.t0 + 0.9 * dt;
+        if rec.extreme && child_extreme {
+            t = 0.5 * (rec.t0 + rec.t1);
+            child_extreme = false;
+        }
 
         if rec.depth < MAX_DEPTH && err > self.tolerance.powi(2) {
             let (cusp, utan) = self.cusp_and_utan(t);
-            self.subdivide(rec, result, t, utan, cusp, cusp);
+            self.subdivide(rec, result, t, utan, cusp, cusp, child_extreme);
         } else {
             result.curve_to(c.p1, c.p2, c.p3);
         }
@@ -155,6 +162,7 @@ impl CubicOffset {
         utan_t: Vec2,
         cusp_t_minus: f64,
         cusp_t_plus: f64,
+        extreme: bool,
     ) {
         let rec0 = OffsetRec::new(
             self,
@@ -165,6 +173,7 @@ impl CubicOffset {
             rec.cusp0,
             cusp_t_minus,
             rec.depth + 1,
+            extreme,
         );
         self.offset_rec(&rec0, result);
         let rec1 = OffsetRec::new(
@@ -176,6 +185,7 @@ impl CubicOffset {
             cusp_t_plus,
             rec.cusp1,
             rec.depth + 1,
+            extreme,
         );
         self.offset_rec(&rec1, result);
     }
@@ -183,7 +193,7 @@ impl CubicOffset {
     fn init_rec(&self) -> OffsetRec {
         let (cusp0, utan0) = self.cusp_and_utan_inner(self.q.p0, self.c0);
         let (cusp1, utan1) = self.cusp_and_utan_inner(self.q.p2, self.c0 + self.c1 + self.c2);
-        OffsetRec::new(self, 0., 1.0, utan0, utan1, cusp0, cusp1, 0)
+        OffsetRec::new(self, 0., 1.0, utan0, utan1, cusp0, cusp1, 0, false)
     }
 
     fn cusp_sign(&self, t: f64) -> f64 {
@@ -377,6 +387,7 @@ impl OffsetRec {
         cusp0: f64,
         cusp1: f64,
         depth: usize,
+        extreme: bool,
     ) -> Self {
         let idet = (8. / 3.) / utan0.cross(utan1);
         // Approximation and deriv at approx t=0.5 when (a, b) are zero
@@ -395,6 +406,7 @@ impl OffsetRec {
             idet,
             c_base,
             tana_base,
+            extreme,
         }
     }
 }

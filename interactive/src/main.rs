@@ -190,14 +190,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
             */
-        path_onept3
-            .stroke(Color::CYAN, stroke_thin.clone())
-            .fill(NONE),
-        Circle::new(midpt, 4.0),
-        midpt_line.class("midpt"),
-        path_midpoint_g1
-            .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
-            .fill(NONE),
+        // Circle::new(midpt, 4.0),
+        // midpt_line.class("midpt"),
+        // path_midpoint_g1
+            // .stroke(Color::BLUE_VIOLET, stroke_thin.clone())
+            // .fill(NONE),
         /*
         tan0_line.class("tan"),
         tan1_line.class("tan"),
@@ -209,12 +206,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
         */
-        err_onept3
-            .stroke(Color::CYAN, stroke_thin.clone())
-            .fill(NONE),
-        derr_plot
-            .stroke(Color::YELLOW, stroke_thin.clone())
-            .fill(NONE),
+        // derr_plot
+        // .stroke(Color::YELLOW, stroke_thin.clone())
+        // .fill(NONE),
         g((
             Circle::new(state.p0, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
@@ -224,9 +218,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p2, &msg)),
             Circle::new(state.p3, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p3, &msg)),
-            Circle::new(state.extra, HANDLE_RADIUS)
-                .class("extra")
-                .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
+            // Circle::new(state.extra, HANDLE_RADIUS)
+            // .class("extra")
+            // .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
         )),
     )))
     .attr("width", 900)
