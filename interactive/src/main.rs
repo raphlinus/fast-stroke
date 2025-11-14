@@ -1,4 +1,7 @@
-use kurbo::{BezPath, Circle, CubicBez, Line, ParamCurve, ParamCurveDeriv, PathEl, Point, Shape};
+use kurbo::{
+    BezPath, Circle, CubicBez, Line, ParamCurve, ParamCurveCurvature, ParamCurveDeriv, PathEl,
+    Point, Shape,
+};
 use perturb::CurveOffset;
 use xilem_web::{
     elements::{
@@ -12,6 +15,7 @@ use xilem_web::{
 
 mod cusp;
 mod evolute;
+mod kbound;
 mod midpoint;
 mod offset;
 mod perturb;
@@ -64,6 +68,16 @@ impl GrabState {
 
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c = CubicBez::new(state.p0, state.p1, state.p2, state.p3);
+    let (kmin, kmax) = crate::kbound::kbound(c);
+    web_sys::console::log_1(&format!("k bounds {kmin:.4} {kmax:.4}").into());
+    let ks = (0..=10)
+        .map(|i| {
+            let t = 0.1 * i as f64;
+            let k = c.curvature(t);
+            format!("{k:.4}")
+        })
+        .collect::<Vec<_>>();
+    web_sys::console::log_1(&ks.join(" ").into());
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
     web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);

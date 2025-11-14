@@ -97,7 +97,7 @@ impl CubicOffset {
 
     pub fn approximate(&self) -> CubicBez {
         let (c, _err, _t) = self.compute_rec(&self.init_rec());
-        web_sys::console::log_1(&format!("err = {}", _err.sqrt()).into());
+        //web_sys::console::log_1(&format!("err = {}", _err.sqrt()).into());
         c
     }
 
@@ -113,7 +113,7 @@ impl CubicOffset {
         };
         let c = self.apply(&rec, a, b);
         let err = self.eval_err(&rec, t, c);
-        web_sys::console::log_1(&format!("err = {}", err.sqrt()).into());
+        //web_sys::console::log_1(&format!("err = {}", err.sqrt()).into());
         (c, err, t)
     }
 
@@ -351,10 +351,11 @@ impl CubicOffset {
                 let p = self.c.eval(u) + self.d * turn(tan.normalize());
                 let dpdu = tan * self.cusp_sign(u);
                 u -= (p - p_approx).dot(q_approx) / dpdu.dot(q_approx);
+                // u = u.max(rec.t0).min(rec.t1);
                 let err2 = p_approx.distance_squared(p);
                 if i == N - 1 {
                     let z = q_approx.cross(dpdu);
-                    web_sys::console::log_1(&format!("{t}: {} {:.3}", err2.sqrt(), z).into());
+                    // web_sys::console::log_1(&format!("{t}: {} {:.3}", err2.sqrt(), z).into());
                     max_err = err2.max(max_err);
                 }
             }
