@@ -3,6 +3,9 @@ use kurbo::{CubicBez, ParamCurveDeriv};
 /// Compute bounds on curvature
 pub fn kbound(c: CubicBez) -> (f64, f64) {
     let q = c.deriv();
+    let dd0 = q.p1 - q.p0;
+    let dd1 = q.p2 - q.p1;
+    let dd2 = dd0.hypot2().max(dd1.hypot2());
     let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
     let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
     let p2xp1 = q.p2.to_vec2().cross(q.p1.to_vec2());
@@ -21,8 +24,12 @@ pub fn kbound(c: CubicBez) -> (f64, f64) {
     if deriv_min <= 0.0 {
         return (-f64::INFINITY, f64::INFINITY);
     }
-    let scale = 1.0 / (deriv_min * deriv_min * deriv_min);
-    (num_min.min(0.) * scale, num_max.max(0.) * scale)
+    let dmin_inv = 1. / deriv_min;
+    let dmin_m2 = dmin_inv * dmin_inv;
+    let alt = 2.0 * dd2.sqrt();
+    let kmin = (num_min.min(0.) * dmin_inv).max(-alt) * dmin_m2;
+    let kmax = (num_max.max(0.) * dmin_inv).min(alt) * dmin_m2;
+    (kmin, kmax)
 }
 
 fn quadratic_min_max(c0: f64, c1: f64, c2: f64) -> (f64, f64) {

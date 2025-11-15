@@ -68,6 +68,13 @@ impl GrabState {
 
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c = CubicBez::new(state.p0, state.p1, state.p2, state.p3);
+    let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
+    web_sys::console::log_1(&format!("scale = {scale}").into());
+    let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
+    let err_scale = 1e1 / scale.powi(6);
+    let t0 = offset * (1.0 - scale);
+    let t1 = t0 + scale;
+    let c = c.subsegment(t0..t1);
     let (kmin, kmax) = crate::kbound::kbound(c);
     web_sys::console::log_1(&format!("k bounds {kmin:.4} {kmax:.4}").into());
     let ks = (0..=10)
@@ -78,13 +85,6 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         })
         .collect::<Vec<_>>();
     web_sys::console::log_1(&ks.join(" ").into());
-    let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
-    web_sys::console::log_1(&format!("scale = {scale}").into());
-    let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
-    let err_scale = 1e1 / scale.powi(6);
-    let t0 = offset * (1.0 - scale);
-    let t1 = t0 + scale;
-    let c = c.subsegment(t0..t1);
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
@@ -232,9 +232,9 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p2, &msg)),
             Circle::new(state.p3, HANDLE_RADIUS)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p3, &msg)),
-            // Circle::new(state.extra, HANDLE_RADIUS)
-            // .class("extra")
-            // .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
+            Circle::new(state.extra, HANDLE_RADIUS)
+                .class("extra")
+                .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.extra, &msg)),
         )),
     )))
     .attr("width", 900)
