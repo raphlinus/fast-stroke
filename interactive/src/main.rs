@@ -71,7 +71,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
     web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
-    let err_scale = 1e1 / scale.powi(6);
+    let err_scale = 1e0 / scale.powi(6);
     let t0 = offset * (1.0 - scale);
     let t1 = t0 + scale;
     let c = c.subsegment(t0..t1);
@@ -89,6 +89,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 100.0;
+    let est = 6e-2 * err_scale * crate::kbound::est_arc_error(c, d);
+    web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
     let (a, b) = perturb::draw_arc(c);
@@ -191,10 +193,18 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         */
+        Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::LIME, stroke.clone()),
+        Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::LIME, stroke.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
             .stroke(Color::LIME, stroke_thin.clone())
+            .fill(NONE),
+        path_arc
+            .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
+        err_arc
+            .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
         /*
         path_ao

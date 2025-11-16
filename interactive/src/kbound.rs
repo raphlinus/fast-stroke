@@ -1,4 +1,4 @@
-use kurbo::{CubicBez, ParamCurveDeriv};
+use kurbo::{CubicBez, ParamCurve, ParamCurveDeriv};
 
 /// Compute bounds on curvature
 pub fn kbound(c: CubicBez) -> (f64, f64) {
@@ -101,4 +101,23 @@ fn q_min_max_refined(c0: f64, c1: f64, c2: f64) -> ([f64; N], [f64; N]) {
     }
 
     (min, max)
+}
+
+fn kbound_accurate(c: CubicBez) -> f64 {
+    const N: usize = 8;
+    let mut max = 0.0;
+    for i in 0..N {
+        let t0 = (i as f64) * (1.0 / N as f64);
+        let t1 = t0 + 1.0 / N as f64;
+        let (kmin, kmax) = kbound(c.subsegment(t0..t1));
+        max = kmax.max(-kmin).max(max);
+    }
+    max
+}
+
+pub fn est_arc_error(c: CubicBez, d: f64) -> f64 {
+    let k = kbound_accurate(c);
+    let chord = (c.p3 - c.p0).hypot();
+    let ratio = k * chord;
+    d * ratio.powi(4)
 }
