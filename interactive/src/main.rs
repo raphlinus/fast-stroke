@@ -67,15 +67,20 @@ impl GrabState {
 }
 
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
+    const ENFORCE_EVEN: bool = false;
+    if ENFORCE_EVEN {
+        // Enforce symmetry (assuming horizontal chord)
+        state.p2 = Point::new(state.p0.x + state.p3.x - state.p1.x, state.p1.y);
+    }
     let c = CubicBez::new(state.p0, state.p1, state.p2, state.p3);
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
     web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
-    let err_scale = 1e0 / scale.powi(6);
+    let err_scale = 1e0 / scale.powi(4);
     let t0 = offset * (1.0 - scale);
     let t1 = t0 + scale;
     let c = c.subsegment(t0..t1);
-    let (kmin, kmax) = crate::kbound::kbound(c);
+    let (kmin, kmax) = crate::kbound::kbound_accurate(c);
     web_sys::console::log_1(&format!("k bounds {kmin:.4} {kmax:.4}").into());
     let ks = (0..=10)
         .map(|i| {
@@ -89,7 +94,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 100.0;
-    let est = 6e-2 * err_scale * crate::kbound::est_arc_error(c, d);
+    let est = 2e2 * err_scale * crate::kbound::est_arc_error(c, d);
     web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
@@ -283,10 +288,10 @@ pub fn main() {
         .init();
 
     let mut state = AppState::default();
-    state.p0 = Point::new(55.0, 466.0);
+    state.p0 = Point::new(50.0, 466.0);
     state.p1 = Point::new(350.0, 146.0);
-    state.p2 = Point::new(496.0, 537.0);
-    state.p3 = Point::new(739.0, 244.0);
+    state.p2 = Point::new(450.0, 146.0);
+    state.p3 = Point::new(750.0, 466.0);
     state.extra = Point::new(500., 250.);
     // state.p0 = Point::new(742.483763921753, 245.69451584513587);
     // state.p1 = Point::new(742.3156048952269, 245.37897448914785);

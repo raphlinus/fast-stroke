@@ -1,4 +1,4 @@
-use kurbo::{CubicBez, ParamCurve, ParamCurveDeriv};
+use kurbo::{Affine, CubicBez, ParamCurve, ParamCurveDeriv};
 
 /// Compute bounds on curvature
 pub fn kbound(c: CubicBez) -> (f64, f64) {
@@ -103,8 +103,22 @@ fn q_min_max_refined(c0: f64, c1: f64, c2: f64) -> ([f64; N], [f64; N]) {
     (min, max)
 }
 
-fn kbound_accurate(c: CubicBez) -> f64 {
+pub fn kbound_accurate(c: CubicBez) -> (f64, f64) {
     const N: usize = 8;
+    let mut min = 0.0;
+    let mut max = 0.0;
+    for i in 0..N {
+        let t0 = (i as f64) * (1.0 / N as f64);
+        let t1 = t0 + 1.0 / N as f64;
+        let (kmin, kmax) = kbound(c.subsegment(t0..t1));
+        max = kmax.max(max);
+        min = kmin.min(min);
+    }
+    (min, max)
+}
+
+fn kbound_accurate_abs(c: CubicBez) -> f64 {
+    const N: usize = 16;
     let mut max = 0.0;
     for i in 0..N {
         let t0 = (i as f64) * (1.0 / N as f64);
@@ -115,9 +129,34 @@ fn kbound_accurate(c: CubicBez) -> f64 {
     max
 }
 
-pub fn est_arc_error(c: CubicBez, d: f64) -> f64 {
-    let k = kbound_accurate(c);
+pub fn est_arc_error_k4(c: CubicBez, d: f64) -> f64 {
+    let k = kbound_accurate_abs(c);
     let chord = (c.p3 - c.p0).hypot();
     let ratio = k * chord;
     d * ratio.powi(4)
+}
+
+/// Other estimation stuff goes here
+
+pub fn est_arc_error(c: CubicBez, d: f64) -> f64 {
+    let c_trans = Affine::translate(-c.p0.to_vec2()) * c;
+    let scale = 1.0 / c_trans.p3.to_vec2().hypot2();
+    let u = c_trans.p3.x * scale;
+    let v = c_trans.p3.y * scale;
+    let c_norm = Affine::new([u, -v, v, u, 0., 0.]) * c_trans;
+    let th0 = c_norm.p1.y.atan2(c_norm.p1.x);
+    let th1 = c_norm.p2.y.atan2(1. - c_norm.p2.x);
+    let y_minus = c_norm.p2.y - c_norm.p1.y;
+    let y_plus = c_norm.p2.y + c_norm.p1.y;
+    let x1 = c_norm.p1.x + 0.75 * c_norm.p1.y.powi(2) - 1. / 3.;
+    let x2 = (1.0 - c_norm.p2.x) + 0.75 * c_norm.p2.y.powi(2) - 1. / 3.;
+    web_sys::console::log_1(&format!("xs {x1} {x2}").into());
+    let dk_err = (th1 - th0) * (th1 - th0);
+    let k2 = (th1 + th0) * (th1 + th0);
+    let x_plus_err = k2 * (x1 + x2) * (x1 + x2);
+    let x_minus_err = k2 * (x1 + x2) * (x1 + x2);
+    let k6_err = k2.powi(3);
+    let x1_err = k2 * x1 * x1;
+    let x2_err = k2 * x2 * x2;
+    dk_err + 1e-4 * k6_err + (x1_err + x2_err)
 }
