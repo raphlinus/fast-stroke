@@ -172,22 +172,25 @@ pub fn est_arc_error_dot(c: CubicBez, d: f64) -> f64 {
     let cross = unorm0.cross(unorm1);
     let sum = unorm0 + unorm1;
     // TODO: numerical robustness when cross is small, see perturb arc_draw
-    let d = (4. / 3.) * (sum.length() - sum.dot(unorm0)) / unorm0.cross(unorm1);
+    let dist = (4. / 3.) * (sum.length() - sum.dot(unorm0)) / cross;
     let p0 = turn(unorm0).to_point();
     let p3 = turn(unorm1).to_point();
-    let p1 = p0 - d * unorm0;
-    let p2 = p3 + d * unorm1;
+    let p1 = p0 - dist * unorm0;
+    let p2 = p3 + dist * unorm1;
     let delta = CubicBez::new(p0, p1, p2, p3);
-    const N: usize = 4;
+    const N: usize = 8;
     let mut err = 0.0;
     for i in 0..N {
         let t = (i as f64 + 0.5) * (1. / N as f64);
-        let dot = turn(q.eval(t).to_vec2().normalize()).dot(delta.eval(t).to_vec2());
-        let base_err = dot - 1.;
+        let unorm = turn(q.eval(t).to_vec2().normalize());
+        let approx = delta.eval(t).to_vec2();
+        let dot = unorm.dot(approx);
+        let cross = unorm.cross(approx);
         let k = c.curvature(t);
-        let adj_err = base_err / (1. - k * d);
+        let k_off = k / (1. + k * d);
+        let adj_err = dot - 1. + 0.5 * k_off * d * cross * cross;
         err = adj_err.abs().max(err);
-        web_sys::console::log_1(&format!("{i}: {dot}").into());
+        web_sys::console::log_1(&format!("{i}: {:.3} {adj_err:.3} {k:.4}", dot - 1.).into());
     }
-    5. * err
+    3. * err
 }
