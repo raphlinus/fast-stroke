@@ -1,4 +1,6 @@
-use kurbo::{Affine, CubicBez, ParamCurve, ParamCurveDeriv};
+use kurbo::{Affine, CubicBez, ParamCurve, ParamCurveCurvature, ParamCurveDeriv, Shape};
+
+use crate::perturb::turn;
 
 /// Compute bounds on curvature
 pub fn kbound(c: CubicBez) -> (f64, f64) {
@@ -136,8 +138,9 @@ pub fn est_arc_error_k4(c: CubicBez, d: f64) -> f64 {
     d * ratio.powi(4)
 }
 
-/// Other estimation stuff goes here
+// Other estimation stuff goes here
 
+/// Estimate error based on cubic parameters
 pub fn est_arc_error(c: CubicBez, d: f64) -> f64 {
     let c_trans = Affine::translate(-c.p0.to_vec2()) * c;
     let scale = 1.0 / c_trans.p3.to_vec2().hypot2();
@@ -156,7 +159,35 @@ pub fn est_arc_error(c: CubicBez, d: f64) -> f64 {
     let x_plus_err = k2 * (x1 + x2) * (x1 + x2);
     let x_minus_err = k2 * (x1 + x2) * (x1 + x2);
     let k6_err = k2.powi(3);
+    let xs = x1 * x1 + x2 * x2;
     let x1_err = k2 * x1 * x1;
     let x2_err = k2 * x2 * x2;
-    dk_err + 1e-4 * k6_err + (x1_err + x2_err)
+    dk_err * 1. + 1e-4 * k6_err + 3. * k2 * xs
+}
+
+pub fn est_arc_error_dot(c: CubicBez, d: f64) -> f64 {
+    let q = c.deriv();
+    let unorm0 = q.p0.to_vec2().normalize();
+    let unorm1 = q.p2.to_vec2().normalize();
+    let cross = unorm0.cross(unorm1);
+    let sum = unorm0 + unorm1;
+    // TODO: numerical robustness when cross is small, see perturb arc_draw
+    let d = (4. / 3.) * (sum.length() - sum.dot(unorm0)) / unorm0.cross(unorm1);
+    let p0 = turn(unorm0).to_point();
+    let p3 = turn(unorm1).to_point();
+    let p1 = p0 - d * unorm0;
+    let p2 = p3 + d * unorm1;
+    let delta = CubicBez::new(p0, p1, p2, p3);
+    const N: usize = 4;
+    let mut err = 0.0;
+    for i in 0..N {
+        let t = (i as f64 + 0.5) * (1. / N as f64);
+        let dot = turn(q.eval(t).to_vec2().normalize()).dot(delta.eval(t).to_vec2());
+        let base_err = dot - 1.;
+        let k = c.curvature(t);
+        let adj_err = base_err / (1. - k * d);
+        err = adj_err.abs().max(err);
+        web_sys::console::log_1(&format!("{i}: {dot}").into());
+    }
+    5. * err
 }

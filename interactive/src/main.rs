@@ -94,7 +94,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 100.0;
-    let est = 2e2 * err_scale * crate::kbound::est_arc_error(c, d);
+    let est = 2e2 * err_scale * crate::kbound::est_arc_error_dot(c, d);
     web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
