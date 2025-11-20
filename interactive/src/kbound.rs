@@ -178,7 +178,7 @@ pub fn est_arc_error_dot(c: CubicBez, d: f64) -> f64 {
     let p1 = p0 - dist * unorm0;
     let p2 = p3 + dist * unorm1;
     let delta = CubicBez::new(p0, p1, p2, p3);
-    const N: usize = 8;
+    const N: usize = 4;
     let mut err = 0.0;
     for i in 0..N {
         let t = (i as f64 + 0.5) * (1. / N as f64);
@@ -192,5 +192,5 @@ pub fn est_arc_error_dot(c: CubicBez, d: f64) -> f64 {
         err = adj_err.abs().max(err);
         web_sys::console::log_1(&format!("{i}: {:.3} {adj_err:.3} {k:.4}", dot - 1.).into());
     }
-    3. * err
+    1.2 * err
 }

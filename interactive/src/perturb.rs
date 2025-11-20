@@ -1116,6 +1116,26 @@ impl OffsetSolutionLse {
             self.ts_rev[i] = t;
         }
     }
+
+    // Osculating parabola error measurement
+    pub fn est_arc_error_dot(&self, co: &CurveOffset) -> f64 {
+        let delta = co.make_delta(self.a, self.b);
+        const N: usize = 8;
+        let mut err = 0.0;
+        for i in 0..N {
+            let t = (i as f64 + 0.5) * (1. / N as f64);
+            let unorm = turn(co.q.eval(t).to_vec2().normalize());
+            let approx = delta.eval(t).to_vec2();
+            let dot = unorm.dot(approx);
+            let cross = unorm.cross(approx);
+            let k = co.c.curvature(t);
+            let k_off = k / (1. + k * self.d);
+            let adj_err = dot - 1. + 0.5 * k_off * self.d * cross * cross;
+            err = adj_err.abs().max(err);
+            web_sys::console::log_1(&format!("{i}: {:.3} {adj_err:.3} {k:.4}", dot - 1.).into());
+        }
+        1.2 * err
+    }
 }
 
 #[test]

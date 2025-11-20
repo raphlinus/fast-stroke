@@ -94,15 +94,16 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let d = 100.0;
-    let est = 2e2 * err_scale * crate::kbound::est_arc_error_dot(c, d);
-    web_sys::console::log_1(&format!("est = {est}").into());
+    let est = 500. * err_scale * crate::kbound::est_arc_error_dot(c, d);
+    //web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
-    let (a, b) = perturb::draw_arc(c);
+    let (a, b, _t) = perturb::arc_onept(c, d);
     let mut soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_arc = soln_arc_lse.apply(&co);
     let path_arc = c_arc.to_path(0.0);
     let err_arc = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_arc), err_scale);
+    let est = 500. * err_scale * soln_arc_lse.est_arc_error_dot(&co);
 
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
