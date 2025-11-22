@@ -93,12 +93,13 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let path = c.to_path(0.0);
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
-    let d = 100.0;
+    let stroke_th2 = xilem_web::svg::kurbo::Stroke::new(1.0);
+    let d = 5.0;
     let est = 500. * err_scale * crate::kbound::est_arc_error_dot(c, d);
     //web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
-    let (a, b, _t) = perturb::arc_onept(c, d);
+    let (a, b) = perturb::least_squares(c);
     let mut soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_arc = soln_arc_lse.apply(&co);
     let path_arc = c_arc.to_path(0.0);
@@ -116,11 +117,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
 
     //let t = ((state.extra.x - 10.0) * 0.002).clamp(0., 1.);
     //let (a, b) = perturb::one_point_at(c, d, t);
-    let (a, b, t) = perturb::arc_onept(c, d);
+    let (a, b) = perturb::one_point(c);
     let soln_ao = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_ao = soln_ao.apply(&co);
     let path_ao = c_ao.to_path(0.0);
     let err_ao = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_ao), err_scale);
+    let est_ao = 500. * err_scale * soln_ao.est_arc_error_dot(&co);
 
     let opt_t = perturb::solve_midpoint(&co, d);
 
@@ -188,8 +190,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     const NONE: Color = Color::TRANSPARENT;
     const HANDLE_RADIUS: f64 = 6.0;
     let svg_el = svg(g((
-        Line::new(state.p0, state.p1).stroke(Color::BLUE, stroke.clone()),
-        Line::new(state.p2, state.p3).stroke(Color::BLUE, stroke.clone()),
+        Line::new(state.p0, state.p1).stroke(Color::GRAY, stroke.clone()),
+        Line::new(state.p2, state.p3).stroke(Color::GRAY, stroke.clone()),
         //Line::new((100., 200.), (600., 200.)).stroke(Color::GREEN, stroke.clone()),
         /*
         Line::new((100., 200. - y0), (267., 200. - y0)).stroke(Color::LIME, stroke.clone()),
@@ -199,8 +201,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         */
-        Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::LIME, stroke.clone()),
-        Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::LIME, stroke.clone()),
+        Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::YELLOW, stroke_th2.clone()),
+        Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::YELLOW, stroke_th2.clone()),
+        Line::new((100., 200. - est_ao), (600., 200. - est_ao))
+            .stroke(Color::ORANGE, stroke_th2.clone()),
+        Line::new((100., 200. + est_ao), (600., 200. + est_ao))
+            .stroke(Color::ORANGE, stroke_th2.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
@@ -212,10 +218,11 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_arc
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        /*
         path_ao
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
+        /*
         path_arc_lse
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
