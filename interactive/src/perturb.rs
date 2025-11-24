@@ -173,6 +173,9 @@ pub fn two_point_approx(c: CubicBez) -> (f64, f64) {
     let z0 = -co.q.eval(t0).to_vec2().hypot() - cc0;
     let z1 = -co.q.eval(t1).to_vec2().hypot() - cc1;
     let det = ca0 * cb1 - ca1 * cb0;
+    let dot = ca0 * cb0 + ca1 * cb1;
+    let ratio = det / dot;
+    web_sys::console::log_1(&format!("two_point ratio = {ratio:.6}").into());
     let a = (z0 * cb1 - z1 * cb0) / det;
     let b = (ca0 * z1 - ca1 * z0) / det;
     (a, b)
@@ -400,7 +403,7 @@ pub fn refine_one_point(c: CubicBez, d: f64, t: f64) -> f64 {
     new_t
 }
 
-fn compute_angle_err(co: &CurveOffset, d: f64, t: f64) -> f64 {
+pub fn compute_angle_err(co: &CurveOffset, d: f64, t: f64) -> f64 {
     let (a, b) = one_point_at(co.c, d, t);
     let approx = co.apply(a, b, d);
     let tana = approx.deriv().eval(0.5).to_vec2();
@@ -916,6 +919,61 @@ pub fn arc_onept(c: CubicBez, d: f64) -> (f64, f64, f64) {
     (ar_scaled, br_scaled, t)
 }
 
+/// Two point along with estimate of transverse component of error.
+///
+/// Multiply third tuple value by d^2 to get estimate.
+pub fn two_pt_w_err(c: CubicBez) -> (f64, f64, f64) {
+    let co = CurveOffset::new(c);
+    let mut aa = 0.0;
+    let mut ab = 0.0;
+    let mut ac = 0.0;
+    let mut bb = 0.0;
+    let mut bc = 0.0;
+    let utan0 = co.q.p0.to_vec2().normalize();
+    let utan1 = co.q.p2.to_vec2().normalize();
+    let c = CubicBez::new(
+        turn(utan0).to_point(),
+        turn(utan0).to_point(),
+        turn(utan1).to_point(),
+        turn(utan1).to_point(),
+    );
+    for t in [1. / 3., 2. / 3.] {
+        let utan = co.q.eval(t).to_vec2().normalize();
+        let n = turn(utan);
+        let c_n = c.eval(t).to_vec2().dot(n) - 1.0;
+        let mt = 1.0 - t;
+        let a_n = 3.0 * mt * t * mt * utan0.dot(n);
+        let b_n = 3.0 * mt * t * t * utan1.dot(n);
+        aa += a_n * a_n;
+        ab += a_n * b_n;
+        ac += a_n * c_n;
+        bb += b_n * b_n;
+        bc += b_n * c_n;
+    }
+    let idet = 1.0 / (aa * bb - ab * ab);
+    let a = -idet * (ac * bb - ab * bc);
+    let b = -idet * (aa * bc - ac * ab);
+    let mut max_err = 0.0;
+    // Compute transverse error
+    for t in [1. / 3., 2. / 3.] {
+        let mt = 1.0 - t;
+        let utan = co.q.eval(t).to_vec2().normalize();
+        let n = turn(utan);
+        let c_t = c.eval(t).to_vec2().cross(n);
+        let a_t = 3.0 * mt * t * mt * utan0.cross(n);
+        let b_t = 3.0 * mt * t * t * utan1.cross(n);
+        let transverse = a_t * a + b_t * b + c_t;
+        let k = co.c.curvature(t);
+        let err = 0.5 * k.abs() * transverse * transverse;
+        web_sys::console::log_1(&format!("transverse {transverse:.4} err {err:.4}").into());
+        max_err = err.max(max_err)
+    }
+    // Don't do the scaling by length when moving to offset.rs
+    let a_scaled = a / co.q.p0.to_vec2().length();
+    let b_scaled = b / co.q.p2.to_vec2().length();
+    (a_scaled, b_scaled, max_err)
+}
+
 impl OffsetSolution {
     pub fn from_a_b(a: f64, b: f64, d: f64) -> Self {
         let ts = OFFSET_TS;
@@ -1133,6 +1191,21 @@ impl OffsetSolutionLse {
             let adj_err = dot - 1. + 0.5 * k_off * self.d * cross * cross;
             err = adj_err.abs().max(err);
             web_sys::console::log_1(&format!("{i}: {:.3} {adj_err:.3} {k:.4}", dot - 1.).into());
+        }
+        1.2 * err
+    }
+
+    pub fn est_arc_error_dot_no_k(&self, co: &CurveOffset) -> f64 {
+        let delta = co.make_delta(self.a, self.b);
+        const N: usize = 8;
+        let mut err = 0.0;
+        for i in 0..N {
+            let t = (i as f64 + 0.5) * (1. / N as f64);
+            let unorm = turn(co.q.eval(t).to_vec2().normalize());
+            let approx = delta.eval(t).to_vec2();
+            let dot = unorm.dot(approx);
+            let adj_err = dot - 1.;
+            err = adj_err.abs().max(err);
         }
         1.2 * err
     }

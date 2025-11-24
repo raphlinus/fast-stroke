@@ -76,7 +76,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
     web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
-    let err_scale = 1e0 / scale.powi(4);
+    let err_scale = 1e0 / scale.powi(5);
     let t0 = offset * (1.0 - scale);
     let t1 = t0 + scale;
     let c = c.subsegment(t0..t1);
@@ -94,17 +94,21 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_th2 = xilem_web::svg::kurbo::Stroke::new(1.0);
-    let d = 5.0;
+    let d = 100.0;
     let est = 500. * err_scale * crate::kbound::est_arc_error_dot(c, d);
     //web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
     let co = CurveOffset::new(c);
-    let (a, b) = perturb::least_squares(c);
+    let (a, b, transverse) = perturb::two_pt_w_err(c);
     let mut soln_arc_lse = perturb::OffsetSolutionLse::from_a_b(a, b, d);
     let c_arc = soln_arc_lse.apply(&co);
     let path_arc = c_arc.to_path(0.0);
     let err_arc = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_arc), err_scale);
     let est = 500. * err_scale * soln_arc_lse.est_arc_error_dot(&co);
+    // Finding from this experiment: the angle error (derivative of delta cross unit normal)
+    // times 0.16 is a good approximation of the error from one point. (scale by d)
+    //let est_angle = 500. * 0.16 * err_scale * perturb::compute_angle_err(&co, d, 0.5) / d;
+    let est_angle = 500. * err_scale * transverse * d;
 
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
@@ -203,10 +207,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         */
         Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::YELLOW, stroke_th2.clone()),
         Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::YELLOW, stroke_th2.clone()),
-        Line::new((100., 200. - est_ao), (600., 200. - est_ao))
-            .stroke(Color::ORANGE, stroke_th2.clone()),
-        Line::new((100., 200. + est_ao), (600., 200. + est_ao))
-            .stroke(Color::ORANGE, stroke_th2.clone()),
+        Line::new((100., 200. - est_angle), (600., 200. - est_angle))
+            .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
+        Line::new((100., 200. + est_angle), (600., 200. + est_angle))
+            .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
