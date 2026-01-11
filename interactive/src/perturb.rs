@@ -54,9 +54,9 @@ pub struct OffsetSolutionLse {
 }
 
 pub struct ErrReport {
-    t_offset: f64,
-    t_approx: f64,
-    error: f64,
+    pub t_offset: f64,
+    pub t_approx: f64,
+    pub error: f64,
 }
 
 impl CurveOffset {
@@ -943,7 +943,7 @@ pub fn two_pt_w_err(c: CubicBez) -> (f64, f64, f64) {
         turn(utan1).to_point(),
         turn(utan1).to_point(),
     );
-    for t in [1. / 3., 2. / 3.] {
+    for t in [0.35, 0.65] {
         let utan = co.q.eval(t).to_vec2().normalize();
         let n = turn(utan);
         let c_n = c.eval(t).to_vec2().dot(n) - 1.0;
@@ -1222,45 +1222,44 @@ impl OffsetSolutionLse {
         mut t_offset: f64,
         mut t_approx: f64,
     ) -> Option<ErrReport> {
-        const MAX_ITER: usize = 10;
+        const MAX_ITER: usize = 8;
         let c_approx = self.apply(co);
         let q_approx = c_approx.deriv();
-        let a_approx = q_approx.deriv();
         for _ in 0..MAX_ITER {
             let pa = c_approx.eval(t_approx);
             let qa = q_approx.eval(t_approx).to_vec2();
+            let qan = qa.normalize();
             let p_src = co.c.eval(t_offset);
             let q_src = co.q.eval(t_offset).to_vec2();
-            let po = p_src + self.d * turn(q_src).normalize();
+            let qsn = q_src.normalize();
+            let po = p_src + self.d * turn(qsn);
             let k_src = co.c.curvature(t_offset);
             let qo = q_src * (1.0 + k_src * self.d);
             let dp = pa - po;
-            web_sys::console::log_1(&format!("pa = {pa:.3} po = {po:.3} dp = {dp:.3}").into());
 
-            let doto = dp.dot(qo);
-            let dota = dp.dot(qa);
-            web_sys::console::log_1(
-                &format!("to = {t_offset:.6} ta = {t_approx:.6} dot0 = {doto:.6} dot1 = {dota:.6}")
-                    .into(),
-            );
+            let doto = dp.dot(qsn);
+            let dota = dp.dot(qan);
+            //web_sys::console::log_1(&format!("doto = {doto:.3} dota = {dota:.3} to = {t_offset:.3} ta = {t_approx:.3}").into());
+            const THRESH: f64 = 1e-12;
+            if doto.abs() + dota.abs() < THRESH {
+                let error = dp.cross(qsn);
+                return Some(ErrReport {
+                    t_offset,
+                    t_approx,
+                    error,
+                });
+            }
             // Newton step to drive dot0 and dot1 to zero
-            let aa = a_approx.eval(t_approx).to_vec2();
-            // Numerical derivative of qo, todo make it analytical
-            const DELTA: f64 = 1e-6;
-            let qsp = co.q.eval(t_offset + DELTA).to_vec2();
-            let ksp = co.c.curvature(t_offset + DELTA);
-            let qop = qsp * (1.0 + ksp * self.d);
-            let ao = (1.0 / DELTA) * (qop - qo);
+            let dqsn_dto = -k_src * turn(q_src);
+            let dqan_dta = -c_approx.curvature(t_approx) * turn(qa);
 
-            let d_doto_to = -qo.dot(qo) + dp.dot(ao);
-            let d_doto_ta = qa.dot(qo);
-            let d_dota_to = -qa.dot(qo);
-            let d_dota_ta = qa.dot(qa) + dp.dot(aa);
+            let d_doto_to = -qo.dot(qsn) + dp.dot(dqsn_dto);
+            let d_doto_ta = qa.dot(qsn);
+            let d_dota_to = -qo.dot(qan);
+            let d_dota_ta = qa.dot(qan) + dp.dot(dqan_dta);
             let idet = 1.0 / (d_doto_to * d_dota_ta - d_doto_ta * d_dota_to);
-            let deltao = (doto * d_dota_ta - d_doto_ta * dota) * idet;
-            let deltaa = (d_doto_to * dota - doto * d_dota_to) * idet;
-            t_offset -= deltao;
-            t_approx -= deltaa;
+            t_offset -= (doto * d_dota_ta - d_doto_ta * dota) * idet;
+            t_approx -= (d_doto_to * dota - doto * d_dota_to) * idet;
         }
         None
     }

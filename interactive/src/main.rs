@@ -76,7 +76,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let scale = (state.extra.x * 0.002).clamp(0.0, 1.0);
     web_sys::console::log_1(&format!("scale = {scale}").into());
     let offset = (state.extra.y * 0.002).clamp(0.0, 1.0);
-    let err_scale = 1e0 / scale.powi(5);
+    let err_scale = 1e1 / scale.powi(5);
     let t0 = offset * (1.0 - scale);
     let t1 = t0 + scale;
     let c = c.subsegment(t0..t1);
@@ -94,7 +94,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let stroke = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_thin = xilem_web::svg::kurbo::Stroke::new(2.0);
     let stroke_th2 = xilem_web::svg::kurbo::Stroke::new(1.0);
-    let d = 100.0;
+    let d = 10.0;
     let est = 500. * err_scale * crate::kbound::est_arc_error_dot(c, d);
     //web_sys::console::log_1(&format!("est = {est}").into());
     //perturb::scaling_test(c, d);
@@ -110,7 +110,21 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     //let est_angle = 500. * 0.16 * err_scale * perturb::compute_angle_err(&co, d, 0.5) / d;
     let est_angle = 500. * err_scale * transverse * d;
 
-    let _ = soln_arc_lse.find_error_extremum(&co, 0.5, 0.5);
+    let mut extrema = vec![];
+    for t in [0.22, 0.5, 0.78] {
+        if let Some(report) = soln_arc_lse.find_error_extremum(&co, t, t) {
+            web_sys::console::log_1(
+                &format!(
+                    "to = {:.3} ta = {:.3} err = {:.3}",
+                    report.t_offset, report.t_approx, report.error
+                )
+                .into(),
+            );
+            let x = 100. + 500. * report.t_offset;
+            let y = 200. - 500. * err_scale * report.error / d;
+            extrema.push(Circle::new((x, y), 4.0));
+        }
+    }
 
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
@@ -230,6 +244,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_onept3
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
+        extrema,
         /*
         path_arc_lse
             .stroke(Color::YELLOW, stroke_thin.clone())
