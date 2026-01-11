@@ -53,6 +53,12 @@ pub struct OffsetSolutionLse {
     ts_rev: [f64; LSE_N],
 }
 
+pub struct ErrReport {
+    t_offset: f64,
+    t_approx: f64,
+    error: f64,
+}
+
 impl CurveOffset {
     pub fn new(c: CubicBez) -> Self {
         let q = c.deriv();
@@ -1208,6 +1214,55 @@ impl OffsetSolutionLse {
             err = adj_err.abs().max(err);
         }
         1.2 * err
+    }
+
+    pub fn find_error_extremum(
+        &self,
+        co: &CurveOffset,
+        mut t_offset: f64,
+        mut t_approx: f64,
+    ) -> Option<ErrReport> {
+        const MAX_ITER: usize = 10;
+        let c_approx = self.apply(co);
+        let q_approx = c_approx.deriv();
+        let a_approx = q_approx.deriv();
+        for _ in 0..MAX_ITER {
+            let pa = c_approx.eval(t_approx);
+            let qa = q_approx.eval(t_approx).to_vec2();
+            let p_src = co.c.eval(t_offset);
+            let q_src = co.q.eval(t_offset).to_vec2();
+            let po = p_src + self.d * turn(q_src).normalize();
+            let k_src = co.c.curvature(t_offset);
+            let qo = q_src * (1.0 + k_src * self.d);
+            let dp = pa - po;
+            web_sys::console::log_1(&format!("pa = {pa:.3} po = {po:.3} dp = {dp:.3}").into());
+
+            let doto = dp.dot(qo);
+            let dota = dp.dot(qa);
+            web_sys::console::log_1(
+                &format!("to = {t_offset:.6} ta = {t_approx:.6} dot0 = {doto:.6} dot1 = {dota:.6}")
+                    .into(),
+            );
+            // Newton step to drive dot0 and dot1 to zero
+            let aa = a_approx.eval(t_approx).to_vec2();
+            // Numerical derivative of qo, todo make it analytical
+            const DELTA: f64 = 1e-6;
+            let qsp = co.q.eval(t_offset + DELTA).to_vec2();
+            let ksp = co.c.curvature(t_offset + DELTA);
+            let qop = qsp * (1.0 + ksp * self.d);
+            let ao = (1.0 / DELTA) * (qop - qo);
+
+            let d_doto_to = -qo.dot(qo) + dp.dot(ao);
+            let d_doto_ta = qa.dot(qo);
+            let d_dota_to = -qa.dot(qo);
+            let d_dota_ta = qa.dot(qa) + dp.dot(aa);
+            let idet = 1.0 / (d_doto_to * d_dota_ta - d_doto_ta * d_dota_to);
+            let deltao = (doto * d_dota_ta - d_doto_ta * dota) * idet;
+            let deltaa = (d_doto_to * dota - doto * d_dota_to) * idet;
+            t_offset -= deltao;
+            t_approx -= deltaa;
+        }
+        None
     }
 }
 

@@ -110,6 +110,8 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     //let est_angle = 500. * 0.16 * err_scale * perturb::compute_angle_err(&co, d, 0.5) / d;
     let est_angle = 500. * err_scale * transverse * d;
 
+    let _ = soln_arc_lse.find_error_extremum(&co, 0.5, 0.5);
+
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
         soln_arc_lse.refine_lse(&co);
@@ -222,10 +224,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         err_arc
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
-        path_ao
+        path_onept3
             .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
-        err_ao.stroke(Color::ORANGE, stroke_thin.clone()).fill(NONE),
+        err_onept3
+            .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
         /*
         path_arc_lse
             .stroke(Color::YELLOW, stroke_thin.clone())
