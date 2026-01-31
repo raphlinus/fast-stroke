@@ -5,6 +5,7 @@ mod approx;
 mod balanced;
 mod cheb;
 mod euler;
+mod hybrid;
 mod mat4;
 mod norm_bez;
 mod offset;
