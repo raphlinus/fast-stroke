@@ -111,19 +111,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let est_angle = 500. * err_scale * transverse * d;
 
     let mut extrema = vec![];
-    for t in [0.22, 0.5, 0.78] {
-        if let Some(report) = soln_arc_lse.find_error_extremum(&co, t, t) {
-            web_sys::console::log_1(
-                &format!(
-                    "to = {:.3} ta = {:.3} err = {:.3}",
-                    report.t_offset, report.t_approx, report.error
-                )
-                .into(),
-            );
-            let x = 100. + 500. * report.t_offset;
-            let y = 200. - 500. * err_scale * report.error / d;
-            extrema.push(Circle::new((x, y), 4.0));
-        }
+    for report in soln_arc_lse.find_error_extrema(&co, 0.5) {
+        let x = 100. + 500. * report.t_offset;
+        let y = 200. - 500. * err_scale * report.error / d;
+        extrema.push(Circle::new((x, y), 4.0));
     }
 
     for _ in 0..2 {

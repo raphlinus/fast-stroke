@@ -53,6 +53,7 @@ pub struct OffsetSolutionLse {
     ts_rev: [f64; LSE_N],
 }
 
+#[derive(Clone, Copy, Default)]
 pub struct ErrReport {
     pub t_offset: f64,
     pub t_approx: f64,
@@ -1263,6 +1264,75 @@ impl OffsetSolutionLse {
         }
         None
     }
+
+    /// Find all error extrema.
+    ///
+    /// t_offset is a hint for what corresponds to 0.5 in the approximation.
+    pub fn find_error_extrema(&self, co: &CurveOffset, t_offset_mid: f64) -> Vec<ErrReport> {
+        let c_approx = self.apply(co);
+        let q_approx = c_approx.deriv();
+        const DEPTH: usize = 5;
+        let mut samples = vec![ErrReport::default(); (1 << DEPTH) + 1];
+        samples[1 << DEPTH].t_approx = 1.0;
+        samples[1 << DEPTH].t_offset = 1.0;
+        for i in 1..(1u32 << DEPTH) {
+            let i_bit_reversed = (i.reverse_bits() >> (32 - DEPTH)) as usize;
+            let t_approx = i_bit_reversed as f64 * 1.0 / (1 << DEPTH) as f64;
+            let mut t_offset = if i == 1 {
+                t_offset_mid
+            } else {
+                let delta = i_bit_reversed & i_bit_reversed.wrapping_neg();
+                0.5 * (samples[i_bit_reversed - delta].t_offset
+                    + samples[i_bit_reversed + delta].t_offset)
+            };
+            let tan = q_approx.eval(t_approx).to_vec2();
+            let pa = c_approx.eval(t_approx);
+            const MAX_ITER: usize = 10;
+            const THRESH: f64 = 1e-6;
+            let mut p = Point::default();
+            for _ in 0..MAX_ITER {
+                p = co.c.eval(t_offset);
+                let error = tan.dot(pa - p);
+                //web_sys::console::log_1(&format!("{i} {j} {error}").into());
+                if error.abs() < THRESH {
+                    break;
+                }
+                t_offset += error / tan.dot(co.q.eval(t_offset).to_vec2());
+            }
+            let utan = co.q.eval(t_offset).to_vec2().normalize();
+            let err = (pa - p).cross(utan) + self.d;
+            samples[i_bit_reversed].t_approx = t_approx;
+            samples[i_bit_reversed].t_offset = t_offset;
+            samples[i_bit_reversed].error = err;
+        }
+        let mut result = vec![];
+        for i in 1..(1 << DEPTH) {
+            let e0 = samples[i - 1].error;
+            let e1 = samples[i].error;
+            let e2 = samples[i + 1].error;
+            let e10 = e1 - e0;
+            let e21 = e2 - e1;
+            if e10 * e21 < 0.0 {
+                let u = 0.5 * (e10 + e21) / (e10 - e21);
+                let t = (u + i as f64) * (1.0 / (1 << DEPTH) as f64);
+                let t_offset = if u >= 0.0 {
+                    lerp(samples[i].t_offset, samples[i + 1].t_offset, u)
+                } else {
+                    lerp(samples[i].t_offset, samples[i - 1].t_offset, -u)
+                };
+                //web_sys::console::log_1(&format!("est extremum: {t}").into());
+                if let Some(extremum) = self.find_error_extremum(co, t_offset, t) {
+                    //web_sys::console::log_1(&format!("extremum: {}", extremum.t_approx).into());
+                    result.push(extremum);
+                }
+            }
+        }
+        result
+    }
+}
+
+fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
 }
 
 #[test]
