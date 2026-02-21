@@ -1229,38 +1229,37 @@ impl OffsetSolutionLse {
         for _ in 0..MAX_ITER {
             let pa = c_approx.eval(t_approx);
             let qa = q_approx.eval(t_approx).to_vec2();
-            let qan = qa.normalize();
+            let utan_a = qa.normalize();
             let p_src = co.c.eval(t_offset);
             let q_src = co.q.eval(t_offset).to_vec2();
-            let qsn = q_src.normalize();
-            let po = p_src + self.d * turn(qsn);
+            let utan_o = q_src.normalize();
+            let po = p_src + self.d * turn(utan_o);
             let k_src = co.c.curvature(t_offset);
-            let qo = q_src * (1.0 + k_src * self.d);
             let dp = pa - po;
 
-            let doto = dp.dot(qsn);
-            let dota = dp.dot(qan);
-            //web_sys::console::log_1(&format!("doto = {doto:.3} dota = {dota:.3} to = {t_offset:.3} ta = {t_approx:.3}").into());
+            let doto = dp.dot(utan_o);
+            let cross = utan_a.cross(utan_o);
+            //web_sys::console::log_1(&format!("doto = {doto:.3} cross = {cross:.3e} to = {t_offset:.3} ta = {t_approx:.3}").into());
             const THRESH: f64 = 1e-12;
-            if doto.abs() + dota.abs() < THRESH {
-                let error = dp.cross(qsn);
+            if doto.abs() + cross.abs() < THRESH {
+                let error = dp.cross(utan_o);
                 return Some(ErrReport {
                     t_offset,
                     t_approx,
                     error,
                 });
             }
-            // Newton step to drive dot0 and dot1 to zero
-            let dqsn_dto = -k_src * turn(q_src);
-            let dqan_dta = -c_approx.curvature(t_approx) * turn(qa);
+            // Newton step to drive doto and cross to zero
+            let d_utano_dto = -k_src * turn(q_src);
+            let dot = utan_a.dot(utan_o);
+            let d_cross_dta = dot * c_approx.curvature(t_approx) * qa.length();
+            let d_cross_dto = -dot * k_src * q_src.length();
 
-            let d_doto_to = -qo.dot(qsn) + dp.dot(dqsn_dto);
-            let d_doto_ta = qa.dot(qsn);
-            let d_dota_to = -qo.dot(qan);
-            let d_dota_ta = qa.dot(qan) + dp.dot(dqan_dta);
-            let idet = 1.0 / (d_doto_to * d_dota_ta - d_doto_ta * d_dota_to);
-            t_offset -= (doto * d_dota_ta - d_doto_ta * dota) * idet;
-            t_approx -= (d_doto_to * dota - doto * d_dota_to) * idet;
+            let d_doto_to = -q_src.length() * (1.0 + k_src * self.d) + dp.dot(d_utano_dto);
+            let d_doto_ta = qa.dot(utan_o);
+            let idet = 1.0 / (d_doto_to * d_cross_dta - d_doto_ta * d_cross_dto);
+            t_offset -= (doto * d_cross_dta - d_doto_ta * cross) * idet;
+            t_approx -= (d_doto_to * cross - doto * d_cross_dto) * idet;
         }
         None
     }
@@ -1278,6 +1277,7 @@ impl OffsetSolutionLse {
         for i in 1..(1u32 << DEPTH) {
             let i_bit_reversed = (i.reverse_bits() >> (32 - DEPTH)) as usize;
             let t_approx = i_bit_reversed as f64 * 1.0 / (1 << DEPTH) as f64;
+            // solve for t_orig so that true offset is in normal ray of approximation at t_approx
             let mut t_offset = if i == 1 {
                 t_offset_mid
             } else {
@@ -1290,17 +1290,20 @@ impl OffsetSolutionLse {
             const MAX_ITER: usize = 10;
             const THRESH: f64 = 1e-6;
             let mut p = Point::default();
-            for _ in 0..MAX_ITER {
-                p = co.c.eval(t_offset);
+            for _j in 0..MAX_ITER {
+                let p_orig = co.c.eval(t_offset);
+                let utan = co.q.eval(t_offset).to_vec2().normalize();
+                p = p_orig + self.d * turn(utan);
                 let error = tan.dot(pa - p);
-                //web_sys::console::log_1(&format!("{i} {j} {error}").into());
+                web_sys::console::log_1(&format!("{i} {_j} {error}").into());
                 if error.abs() < THRESH {
                     break;
                 }
-                t_offset += error / tan.dot(co.q.eval(t_offset).to_vec2());
+                let k_scale = 1.0 + co.c.curvature(t_offset) * self.d;
+                t_offset += error / (k_scale * tan.dot(co.q.eval(t_offset).to_vec2()));
             }
             let utan = co.q.eval(t_offset).to_vec2().normalize();
-            let err = (pa - p).cross(utan) + self.d;
+            let err = (pa - p).cross(utan);
             samples[i_bit_reversed].t_approx = t_approx;
             samples[i_bit_reversed].t_offset = t_offset;
             samples[i_bit_reversed].error = err;
