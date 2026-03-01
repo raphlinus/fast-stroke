@@ -13,10 +13,13 @@ use xilem_web::{
     App, DomView, PointerMsg,
 };
 
+use crate::min_frechet::MinFrechet;
+
 mod cusp;
 mod evolute;
 mod kbound;
 mod midpoint;
+mod min_frechet;
 mod offset;
 mod perturb;
 
@@ -110,13 +113,6 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     //let est_angle = 500. * 0.16 * err_scale * perturb::compute_angle_err(&co, d, 0.5) / d;
     let est_angle = 500. * err_scale * transverse * d;
 
-    let mut extrema = vec![];
-    for report in soln_arc_lse.find_error_extrema(&co, 0.5) {
-        let x = 100. + 500. * report.t_offset;
-        let y = 200. - 500. * err_scale * report.error / d;
-        extrema.push(Circle::new((x, y), 4.0));
-    }
-
     for _ in 0..2 {
         soln_arc_lse.newton_step_rev(&co);
         soln_arc_lse.refine_lse(&co);
@@ -137,10 +133,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
 
     let opt_t = perturb::solve_midpoint(&co, d);
 
-    let (a_m, b_m) = match opt_t {
-        Some(t) => perturb::one_point_at(c, d, t),
-        None => (a, b),
-    };
+    let mut mf = MinFrechet::new(opt_t.unwrap_or(0.5));
+    let iter_result = mf.iterate(&co, d);
+    web_sys::console::log_1(&format!("iter result: {iter_result:?}").into());
+    let (a_m, b_m) = mf.get_a_b(c, d);
     web_sys::console::log_1(&format!("midpoint check a {} b {}", a_m * d, b_m * d,).into());
     const SCALE: f64 = 1e-6;
     //let a_m = a_m + SCALE * (state.extra.x - 250.0);
@@ -149,6 +145,13 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let c_onept3 = soln_onept3.apply(&co);
     let path_onept3 = c_onept3.to_path(0.0);
     let err_onept3 = perturb::plot_scaled(&perturb::error_by_rays(c, d, c_onept3), err_scale);
+
+    let mut extrema = vec![];
+    for report in soln_onept3.find_error_extrema(&co, opt_t.unwrap_or(0.5)) {
+        let x = 100. + 500. * report.t_offset;
+        let y = 200. - 500. * err_scale * report.error / d;
+        extrema.push(Circle::new((x, y), 4.0));
+    }
 
     let derr_plot = perturb::plot(&perturb::onept_err_plot(c, d));
 

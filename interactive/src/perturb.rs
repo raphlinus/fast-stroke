@@ -13,10 +13,10 @@ const ERROR_SCALE: f64 = 1.0e2;
 const BLEND: f64 = 1e-3;
 
 pub struct CurveOffset {
-    c: CubicBez,
+    pub(crate) c: CubicBez,
     pub(crate) q: QuadBez,
-    n0: Vec2,
-    n1: Vec2,
+    pub(crate) n0: Vec2,
+    pub(crate) n1: Vec2,
     b01xb12: f64,
     b01xb23: f64,
     b12xb23: f64,
