@@ -13,7 +13,7 @@ use xilem_web::{
     App, DomView, PointerMsg,
 };
 
-use crate::min_frechet::MinFrechet;
+use crate::min_frechet::{IterResult, MinFrechet};
 
 mod cusp;
 mod evolute;
@@ -134,8 +134,21 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let opt_t = perturb::solve_midpoint(&co, d);
 
     let mut mf = MinFrechet::new(opt_t.unwrap_or(0.5));
-    let iter_result = mf.iterate(&co, d);
-    web_sys::console::log_1(&format!("iter result: {iter_result:?}").into());
+    let mut mf_color = Color::ORANGE;
+    const FRECHET_MAX_ITER: usize = 10;
+    for _ in 0..FRECHET_MAX_ITER {
+        match mf.iterate(&co, d) {
+            IterResult::Done => {
+                mf_color = Color::GREEN;
+                break;
+            }
+            IterResult::Fail => {
+                mf_color = Color::RED;
+                break;
+            }
+            IterResult::Step => (),
+        }
+    }
     let (a_m, b_m) = mf.get_a_b(c, d);
     web_sys::console::log_1(&format!("midpoint check a {} b {}", a_m * d, b_m * d,).into());
     const SCALE: f64 = 1e-6;
@@ -233,10 +246,10 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .stroke(Color::YELLOW, stroke_thin.clone())
             .fill(NONE),
         path_onept3
-            .stroke(Color::ORANGE, stroke_thin.clone())
+            .stroke(mf_color, stroke_thin.clone())
             .fill(NONE),
         err_onept3
-            .stroke(Color::ORANGE, stroke_thin.clone())
+            .stroke(mf_color, stroke_thin.clone())
             .fill(NONE),
         extrema,
         /*

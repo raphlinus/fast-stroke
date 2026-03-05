@@ -2,7 +2,7 @@
 
 use kurbo::{CubicBez, ParamCurve, ParamCurveDeriv};
 
-use crate::perturb::{turn, CurveOffset, OffsetSolutionLse};
+use crate::perturb::{CurveOffset, OffsetSolutionLse, turn};
 
 pub struct MinFrechet {
     /// The t value on the true offset corresponding to 0.5 on the approximation
@@ -47,14 +47,28 @@ impl MinFrechet {
         let (a, b) = self.get_a_b(co.c, d);
         let soln = OffsetSolutionLse::from_a_b(a, b, d);
         let extrema = soln.find_error_extrema(co, self.t);
-        if extrema.len() != 3 {
-            // TODO: can probably handle 4 extrema...
+        #[allow(unused_assignments, reason = "the warning is wrong")]
+        let mut fake_extrema = None;
+        let extrema_slice = if extrema.len() < 3 {
+            fake_extrema = Some(soln.fake_error_extrema(co, self.t));
+            &fake_extrema.as_ref().unwrap()[0..3]
+        } else if extrema.len() == 3 {
+            &extrema[0..3]
+        } else if extrema.len() == 4 {
+            let base = if extrema[3].error.abs() > extrema[0].error.abs() {
+                1
+            } else {
+                0
+            };
+            &extrema[base..base + 3]
+        } else {
             return IterResult::Fail;
-        }
+        };
         //let err = extrema.iter().fold(0.0, |m, e| e.error.abs().max(m));
-        let e01 = extrema[0].error + extrema[1].error;
-        let e12 = extrema[1].error + extrema[2].error;
-        const THRESH: f64 = 1e-12;
+        let e01 = extrema_slice[0].error + extrema_slice[1].error;
+        let e12 = extrema_slice[1].error + extrema_slice[2].error;
+        const THRESH: f64 = 1e-9;
+        web_sys::console::log_1(&format!("e01 = {e01:.3e} e12 = {e12:.3e}").into());
         if e01.abs().max(e12.abs()) < THRESH {
             return IterResult::Done;
         }
@@ -70,7 +84,7 @@ impl MinFrechet {
         let da_dv = dp_dv.cross(cb) * idet;
         let db_dv = ca.cross(dp_dv) * idet;
         let de_dt_v: [_; 3] = core::array::from_fn(|i| {
-            let extremum = &extrema[i];
+            let extremum = &extrema_slice[i];
             let unorm = turn(co.q.eval(extremum.t_offset).to_vec2()).normalize();
             let ta = extremum.t_approx;
             let mta = 1. - ta;
@@ -84,8 +98,8 @@ impl MinFrechet {
         let de01_dv = de_dt_v[0].1 + de_dt_v[1].1;
         let de12_dt = de_dt_v[1].0 + de_dt_v[2].0;
         let de12_dv = de_dt_v[1].1 + de_dt_v[2].1;
-        let e01 = extrema[0].error + extrema[1].error;
-        let e12 = extrema[1].error + extrema[2].error;
+        let e01 = extrema_slice[0].error + extrema_slice[1].error;
+        let e12 = extrema_slice[1].error + extrema_slice[2].error;
         let idet2 = 1.0 / (de01_dt * de12_dv - de12_dt * de01_dv);
         let dt = (e01 * de12_dv - e12 * de01_dv) * idet2;
         let dz = (de01_dt * e12 - de12_dt * e01) * idet2;

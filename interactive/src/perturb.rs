@@ -53,7 +53,7 @@ pub struct OffsetSolutionLse {
     ts_rev: [f64; LSE_N],
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct ErrReport {
     pub t_offset: f64,
     pub t_approx: f64,
@@ -1268,46 +1268,8 @@ impl OffsetSolutionLse {
     ///
     /// t_offset is a hint for what corresponds to 0.5 in the approximation.
     pub fn find_error_extrema(&self, co: &CurveOffset, t_offset_mid: f64) -> Vec<ErrReport> {
-        let c_approx = self.apply(co);
-        let q_approx = c_approx.deriv();
         const DEPTH: usize = 5;
-        let mut samples = vec![ErrReport::default(); (1 << DEPTH) + 1];
-        samples[1 << DEPTH].t_approx = 1.0;
-        samples[1 << DEPTH].t_offset = 1.0;
-        for i in 1..(1u32 << DEPTH) {
-            let i_bit_reversed = (i.reverse_bits() >> (32 - DEPTH)) as usize;
-            let t_approx = i_bit_reversed as f64 * 1.0 / (1 << DEPTH) as f64;
-            // solve for t_orig so that true offset is in normal ray of approximation at t_approx
-            let mut t_offset = if i == 1 {
-                t_offset_mid
-            } else {
-                let delta = i_bit_reversed & i_bit_reversed.wrapping_neg();
-                0.5 * (samples[i_bit_reversed - delta].t_offset
-                    + samples[i_bit_reversed + delta].t_offset)
-            };
-            let tan = q_approx.eval(t_approx).to_vec2();
-            let pa = c_approx.eval(t_approx);
-            const MAX_ITER: usize = 10;
-            const THRESH: f64 = 1e-6;
-            let mut p = Point::default();
-            for _j in 0..MAX_ITER {
-                let p_orig = co.c.eval(t_offset);
-                let utan = co.q.eval(t_offset).to_vec2().normalize();
-                p = p_orig + self.d * turn(utan);
-                let error = tan.dot(pa - p);
-                web_sys::console::log_1(&format!("{i} {_j} {error}").into());
-                if error.abs() < THRESH {
-                    break;
-                }
-                let k_scale = 1.0 + co.c.curvature(t_offset) * self.d;
-                t_offset += error / (k_scale * tan.dot(co.q.eval(t_offset).to_vec2()));
-            }
-            let utan = co.q.eval(t_offset).to_vec2().normalize();
-            let err = (pa - p).cross(utan);
-            samples[i_bit_reversed].t_approx = t_approx;
-            samples[i_bit_reversed].t_offset = t_offset;
-            samples[i_bit_reversed].error = err;
-        }
+        let samples = self.coarse_err_eval(co, t_offset_mid, DEPTH);
         let mut result = vec![];
         for i in 1..(1 << DEPTH) {
             let e0 = samples[i - 1].error;
@@ -1331,6 +1293,53 @@ impl OffsetSolutionLse {
             }
         }
         result
+    }
+
+    fn coarse_err_eval(&self, co: &CurveOffset, t_offset_mid: f64, depth: usize) -> Vec<ErrReport> {
+        let c_approx = self.apply(co);
+        let q_approx = c_approx.deriv();
+        let mut samples = vec![ErrReport::default(); (1 << depth) + 1];
+        samples[1 << depth].t_approx = 1.0;
+        samples[1 << depth].t_offset = 1.0;
+        for i in 1..(1u32 << depth) {
+            let i_bit_reversed = (i.reverse_bits() >> (32 - depth)) as usize;
+            let t_approx = i_bit_reversed as f64 * 1.0 / (1 << depth) as f64;
+            // solve for t_orig so that true offset is in normal ray of approximation at t_approx
+            let mut t_offset = if i == 1 {
+                t_offset_mid
+            } else {
+                let delta = i_bit_reversed & i_bit_reversed.wrapping_neg();
+                0.5 * (samples[i_bit_reversed - delta].t_offset
+                    + samples[i_bit_reversed + delta].t_offset)
+            };
+            let tan = q_approx.eval(t_approx).to_vec2();
+            let pa = c_approx.eval(t_approx);
+            const MAX_ITER: usize = 10;
+            const THRESH: f64 = 1e-6;
+            let mut p = Point::default();
+            for _j in 0..MAX_ITER {
+                let p_orig = co.c.eval(t_offset);
+                let utan = co.q.eval(t_offset).to_vec2().normalize();
+                p = p_orig + self.d * turn(utan);
+                let error = tan.dot(pa - p);
+                //web_sys::console::log_1(&format!("{i} {_j} {error}").into());
+                if error.abs() < THRESH {
+                    break;
+                }
+                let k_scale = 1.0 + co.c.curvature(t_offset) * self.d;
+                t_offset += error / (k_scale * tan.dot(co.q.eval(t_offset).to_vec2()));
+            }
+            let utan = co.q.eval(t_offset).to_vec2().normalize();
+            let err = (pa - p).cross(utan);
+            samples[i_bit_reversed].t_approx = t_approx;
+            samples[i_bit_reversed].t_offset = t_offset;
+            samples[i_bit_reversed].error = err;
+        }
+        samples
+    }
+
+    pub fn fake_error_extrema(&self, co: &CurveOffset, t_offset_mid: f64) -> Vec<ErrReport> {
+        self.coarse_err_eval(co, t_offset_mid, 2)
     }
 }
 
