@@ -133,7 +133,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
 
     let opt_t = perturb::solve_midpoint(&co, d);
 
-    let mut mf = MinFrechet::new(opt_t.unwrap_or(0.5));
+    let mut mf = MinFrechet::new(0.5);
     let mut mf_color = Color::ORANGE;
     const FRECHET_MAX_ITER: usize = 10;
     for _ in 0..FRECHET_MAX_ITER {
@@ -228,12 +228,14 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
         Line::new((433., 200. - y2), (600., 200. - y2)).stroke(Color::LIME, stroke.clone()),
         Line::new((433., 200. + y2), (600., 200. + y2)).stroke(Color::LIME, stroke.clone()),
         */
-        Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::YELLOW, stroke_th2.clone()),
-        Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::YELLOW, stroke_th2.clone()),
-        Line::new((100., 200. - est_angle), (600., 200. - est_angle))
-            .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
-        Line::new((100., 200. + est_angle), (600., 200. + est_angle))
-            .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
+        g((
+            Line::new((100., 200. - est), (600., 200. - est)).stroke(Color::YELLOW, stroke_th2.clone()),
+            Line::new((100., 200. + est), (600., 200. + est)).stroke(Color::YELLOW, stroke_th2.clone()),
+            Line::new((100., 200. - est_angle), (600., 200. - est_angle))
+                .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
+            Line::new((100., 200. + est_angle), (600., 200. + est_angle))
+                .stroke(Color::BLUE_VIOLET, stroke_th2.clone()),
+        )),
         path.stroke(Color::WHITE, stroke_thin.clone()).fill(NONE),
         subdiv_pts(&path_offset),
         path_offset
@@ -244,6 +246,12 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
             .fill(NONE),
         err_arc
             .stroke(Color::YELLOW, stroke_thin.clone())
+            .fill(NONE),
+        path_ao
+            .stroke(Color::ORANGE, stroke_thin.clone())
+            .fill(NONE),
+        err_ao
+            .stroke(Color::ORANGE, stroke_thin.clone())
             .fill(NONE),
         path_onept3
             .stroke(mf_color, stroke_thin.clone())
