@@ -10,26 +10,32 @@
         font-family: monospace;
         margin: 0px;
         padding: 1rem;
-        min-height: 20rem;
-        height: calc(100vh - 2rem);
       }
 
-      button,
-      select,
-      input[type="text"] {
-        background: #222;
-        color: #ccc;
-        border: 1px solid #ccc;
-        border-radius: 2px;
+      #beztoy-container-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+
+      #offset-control {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      #offset-control label {
+        display: inline-block;
+        width: 15ch;
+      }
+
+      #offset-control input[type="range"] {
+        width: 300px;
+        accent-color: #f88;
       }
 
       #beztoy-container-inner circle {
         fill: #07e;
-        cursor: grab;
-      }
-
-      #beztoy-container-inner circle.extra {
-        fill: #f88;
         cursor: grab;
       }
     </style>
