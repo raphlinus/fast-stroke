@@ -10,4 +10,4 @@ kurbo = "0.11.0"
 rand = "0.8.5"
 
 [workspace]
-members = [ "interactive" ]
+members = [ "interactive", "quad_offset" ]
