@@ -1,3 +1,5 @@
+mod offset;
+
 use xilem_web::{
     elements::{
         html::{div, input, label},
@@ -6,7 +8,7 @@ use xilem_web::{
     input_event_target_value,
     interfaces::{Element, HtmlInputElement, SvgGeometryElement, SvgPathElement},
     svg::{
-        kurbo::{BezPath, Circle, Line, ParamCurve, Point, QuadBez, Shape, Vec2},
+        kurbo::{BezPath, Circle, Line, Point, QuadBez, Shape},
         peniko,
     },
     App, DomView, PointerMsg,
@@ -55,33 +57,6 @@ impl GrabState {
     }
 }
 
-/// Unit normal (rotated 90° ccw from tangent) of a QuadBez at parameter t.
-fn quad_normal(q: &QuadBez, t: f64) -> Vec2 {
-    let d0 = q.p1 - q.p0;
-    let d1 = q.p2 - q.p1;
-    let tangent = 2.0 * ((1.0 - t) * d0 + t * d1);
-    let len = tangent.length();
-    if len < 1e-10 {
-        Vec2::new(0.0, 1.0)
-    } else {
-        Vec2::new(-tangent.y / len, tangent.x / len)
-    }
-}
-
-/// Approximate the offset of a QuadBez by sampling at t=0, 0.5, 1 and
-/// fitting a new QuadBez through the three offset points.
-fn offset_quad(q: &QuadBez, d: f64) -> QuadBez {
-    let p0_off = q.p0 + d * quad_normal(q, 0.0);
-    let p_mid_off = q.eval(0.5) + d * quad_normal(q, 0.5);
-    let p2_off = q.p2 + d * quad_normal(q, 1.0);
-    // B(0.5) = (P0 + 2*P1 + P2)/4  =>  P1 = 2*B(0.5) - (P0+P2)/2
-    let p1_off = Point::new(
-        2.0 * p_mid_off.x - 0.5 * (p0_off.x + p2_off.x),
-        2.0 * p_mid_off.y - 0.5 * (p0_off.y + p2_off.y),
-    );
-    QuadBez::new(p0_off, p1_off, p2_off)
-}
-
 fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let q = QuadBez::new(state.p0, state.p1, state.p2);
     let d = state.offset;
@@ -95,7 +70,7 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
     let gray: peniko::Color = peniko::color::palette::css::GRAY;
     let transparent: peniko::Color = peniko::Color::TRANSPARENT;
 
-    let path_offset: BezPath = offset_quad(&q, d).to_path(0.0);
+    let path_offset: BezPath = offset::offset_quad(&q, d).to_path(0.0);
 
     let svg_el = svg(g((
         Line::new(state.p0, state.p1).stroke(gray, stroke.clone()),
