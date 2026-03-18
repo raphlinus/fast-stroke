@@ -8,7 +8,7 @@ use xilem_web::{
     input_event_target_value,
     interfaces::{Element, HtmlInputElement, SvgGeometryElement, SvgPathElement},
     svg::{
-        kurbo::{BezPath, Circle, Line, Point, QuadBez, Shape},
+        kurbo::{BezPath, Circle, CubicBez, Line, Point, QuadBez, Shape},
         peniko,
     },
     App, DomView, PointerMsg,
@@ -67,16 +67,20 @@ fn app_logic(state: &mut AppState) -> impl DomView<AppState> {
 
     let white: peniko::Color = peniko::Color::WHITE;
     let lime: peniko::Color = peniko::color::palette::css::LIME;
+    let cyan: peniko::Color = peniko::color::palette::css::CYAN;
     let gray: peniko::Color = peniko::color::palette::css::GRAY;
     let transparent: peniko::Color = peniko::Color::TRANSPARENT;
 
     let path_offset: BezPath = offset::offset_quad(&q, d).to_path(0.0);
+    let cubic_offset: CubicBez = offset::offset_cubic(&q, d);
+    let path_cubic: BezPath = cubic_offset.to_path(0.0);
 
     let svg_el = svg(g((
         Line::new(state.p0, state.p1).stroke(gray, stroke.clone()),
         Line::new(state.p1, state.p2).stroke(gray, stroke.clone()),
         path.stroke(white, stroke_thin.clone()).fill(transparent),
         path_offset.stroke(lime, stroke_thin.clone()).fill(transparent),
+        path_cubic.stroke(cyan, stroke_thin.clone()).fill(transparent),
         g((
             Circle::new(state.p0, 6.0)
                 .pointer(|s: &mut AppState, msg| s.grab.handle(&mut s.p0, &msg)),
